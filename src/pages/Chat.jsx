@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
-import { useKeyRotation } from '../hooks/useKeyRotation.js';
 import client from '../api/client.js';
 import { connectSocket, getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, sealBytes, pickRandom } from '../crypto/keys.js';
@@ -14,8 +13,7 @@ function formatLastSeen(iso) {
 }
 
 export default function Chat() {
-  const { user, logout, rotateKey, hasLocalKeyring } = useAuth();
-  useKeyRotation();
+  const { user, logout, regenerateKeys, hasLocalKeyring } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -136,8 +134,8 @@ export default function Chat() {
     }
   }
 
-  async function handleRotateNow() {
-    await rotateKey();
+  async function handleGenerateKeys() {
+    await regenerateKeys();
     setError('');
   }
 
@@ -179,7 +177,7 @@ export default function Chat() {
               Old messages encrypted under your previous keys will remain unreadable, but you can generate a
               fresh 5-key set to continue chatting.
             </p>
-            <button onClick={handleRotateNow}>Generate new keys for this device</button>
+            <button onClick={handleGenerateKeys}>Generate new keys for this device</button>
           </div>
         )}
 
