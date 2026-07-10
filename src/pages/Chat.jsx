@@ -67,11 +67,34 @@ export default function Chat() {
     return () => socket.off('message:new', handleIncoming);
   }, [hasLocalKeyring, user, decorate]);
 
+  // Socket.IO gives instant delivery where it's available (local dev), but
+  // the deployed backend runs serverless (Vercel) and has no socket server
+  // at all — without this, a new message only ever showed up after a full
+  // page reload. Polling is a blunt fallback, but it works everywhere.
   useEffect(() => {
-    if (!selectedUser || !hasLocalKeyring) return;
-    client.get(`/messages/${selectedUser.id}`).then((res) => {
-      setMessages(res.data.data.map(decorate));
-    });
+    if (!selectedUser || !hasLocalKeyring) return undefined;
+
+    let cancelled = false;
+    const fetchMessages = () => {
+      client.get(`/messages/${selectedUser.id}`).then((res) => {
+        if (cancelled) return;
+        const next = res.data.data.map(decorate);
+        // Skip the state update (and the auto-scroll-to-bottom it triggers)
+        // when polling turns up nothing new — otherwise re-reading history
+        // gets yanked back to the bottom every 3 seconds.
+        setMessages((prev) => {
+          const same = prev.length === next.length && prev.every((m, i) => (m.id || m._id) === (next[i].id || next[i]._id));
+          return same ? prev : next;
+        });
+      });
+    };
+
+    fetchMessages();
+    const intervalId = setInterval(fetchMessages, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, [selectedUser, hasLocalKeyring, decorate]);
 
   useEffect(() => {
