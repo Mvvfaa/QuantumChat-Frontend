@@ -206,14 +206,31 @@ export default function Chat() {
         return current.type === 'group' && String(current.id) === String(raw.group);
       }
       const otherId = String(raw.from) === String(user.id) ? raw.to : raw.from;
-      const blocked = (user.blockedUsers || []).map(String);
-      if (blocked.includes(String(otherId))) return;
-      if (!current || String(current.id) !== String(otherId)) return;
+      return current.type === 'dm' && String(current.id) === String(otherId);
+    }
+
+    function handleIncoming(raw) {
+      if (raw.group) {
+        // group messages have no DM peer block list
+      } else {
+        const otherId = String(raw.from) === String(user.id) ? raw.to : raw.from;
+        const blocked = (user.blockedUsers || []).map(String);
+        if (blocked.includes(String(otherId))) return;
+      }
+
+      recordActivityFromMessage(raw);
+      if (!isCurrentConversation(raw)) return;
 
       if (String(raw.from) !== String(user.id)) {
         playReceiveSound();
-        markConversationRead(user.id, selectedRef.current.key, raw.createdAt || new Date().toISOString());
-        bumpActivity();
+        if (selectedRef.current?.key) {
+          markConversationRead(
+            user.id,
+            selectedRef.current.key,
+            raw.createdAt || new Date().toISOString()
+          );
+          bumpActivity();
+        }
       }
 
       setMessages((prev) => {
