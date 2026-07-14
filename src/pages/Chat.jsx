@@ -17,7 +17,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import client from '../api/client.js';
 import { connectSocket, getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, sealBytes, pickRandom } from '../crypto/keys.js';
-import { parseKeyFile } from '../crypto/keyFile.js';
+import { formatKeyFile, downloadKeyFile, parseKeyFile } from '../crypto/keyFile.js';
 import { getCurrentKeySet, findSecretKeyForPublicKey } from '../crypto/keyStorage.js';
 import { normalizeAttachment, pickRecorderMimeType } from '../crypto/voiceCache.js';
 import { playReceiveSound, playSendSound } from '../utils/sounds.js';
@@ -736,7 +736,11 @@ export default function Chat() {
         if (replyTo) body.replyTo = replyTo.id || replyTo._id;
         const { data } = await client.post('/messages', body);
         recordActivityFromMessage(data.data);
-        setMessages((prev) => [...prev, decorate(data.data)]);
+        setMessages((prev) => {
+          const id = String(data.data.id || data.data._id);
+          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+          return [...prev, decorate(data.data)];
+        });
       }
       setDraft('');
       setReplyTo(null);
@@ -800,7 +804,11 @@ export default function Chat() {
       attachmentId,
     });
     recordActivityFromMessage(data.data);
-    setMessages((prev) => [...prev, decorate(data.data)]);
+    setMessages((prev) => {
+      const id = String(data.data.id || data.data._id);
+      if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+      return [...prev, decorate(data.data)];
+    });
     playSendSound();
     showToast('File sent successfully', 'success', 3000);
     setTimeout(() => scrollToBottom('smooth'), 50);
@@ -1061,8 +1069,20 @@ export default function Chat() {
   }
 
   async function handleGenerateKeys() {
-    await regenerateKeys();
-    showToast('New keys generated and synchronized successfully', 'success');
+    try {
+      const { keySet } = await regenerateKeys();
+      const content = formatKeyFile({
+        username: user.username,
+        email: user.email,
+        secretKeys: keySet.map((k) => k.secretKey),
+      });
+      downloadKeyFile(content);
+      showToast('New keys generated and synchronized successfully', 'success');
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to generate keys');
+      showToast('Failed to generate keys', 'error');
+    }
   }
 
   async function handleImportKeyFile(e) {
@@ -1212,7 +1232,7 @@ export default function Chat() {
               <button onClick={() => keyFileInputRef.current?.click()}>Import keys.txt</button>
               <input ref={keyFileInputRef} type="file" accept=".txt" hidden onChange={handleImportKeyFile} />
               <button className="secondary-button" onClick={handleGenerateKeys}>
-                Generate new keys instead
+                Generate new key & download
               </button>
             </div>
           </div>
