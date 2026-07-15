@@ -57,7 +57,7 @@ export function AuthProvider({ children }) {
     addKeySetToRing(user.id, keySet);
     saveSession(getToken(), data.data);
     setUser(data.data);
-    return data.data;
+    return { user: data.data, keySet };
   }, [user]);
 
   // Imports private keys recovered from a keys.txt backup (a different

@@ -1,21 +1,22 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  // Protect QuantumChat's design-system CSS from Tailwind Preflight resets
+  corePlugins: {
+    preflight: false,
+  },
   theme: {
     extend: {
       colors: {
         brand: {
-          cyan: '#00d4ff',
-          bg: '#0a0e14',
-          surface: '#161b22',
-          text: '#e6edf3',
-          textMuted: '#8b949e',
-        }
-      }
+          cyan: '#38bdf8',
+          bg: '#07131f',
+          surface: '#0d1b2a',
+          text: '#f1f5f9',
+          textMuted: '#94a3b8',
+        },
+      },
     },
   },
   plugins: [],
-}
+};
