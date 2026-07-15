@@ -1,59 +1,54 @@
-/**
- * ImageLightbox.jsx
- * 
- * A full-screen image viewer overlay. Displays an image centered on
- * a dark backdrop with close controls via button, backdrop click,
- * or Escape key. Includes fade-in and scale animation on open.
- */
 import { useEffect, useCallback } from 'react';
 
 /**
- * ImageLightbox component
- * 
- * @param {Object} props
- * @param {string}   props.src     - Image source URL
- * @param {string}   props.alt     - Alt text for the image
- * @param {boolean}  props.isOpen  - Whether the lightbox is visible
- * @param {function} props.onClose - Callback to close the lightbox
+ * Full-screen image gallery. Supports prev/next when multiple images are provided.
  */
-function ImageLightbox({ src, alt = 'Image preview', isOpen, onClose }) {
-  /**
-   * Handle keyboard events — close on Escape key.
-   */
-  const handleKeyDown = useCallback(
-    (event) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
+function ImageLightbox({
+  src,
+  alt = 'Image preview',
+  isOpen,
+  onClose,
+  items = null,
+  index = 0,
+  onIndexChange,
+}) {
+  const gallery = Array.isArray(items) && items.length > 0 ? items : src ? [{ src, alt }] : [];
+  const currentIndex = Math.min(Math.max(0, index), Math.max(0, gallery.length - 1));
+  const current = gallery[currentIndex];
+  const hasMany = gallery.length > 1;
+
+  const go = useCallback(
+    (delta) => {
+      if (!hasMany || !onIndexChange) return;
+      const next = (currentIndex + delta + gallery.length) % gallery.length;
+      onIndexChange(next);
     },
-    [onClose]
+    [hasMany, onIndexChange, currentIndex, gallery.length]
   );
 
-  // Bind and unbind the keyboard listener when the lightbox is open
+  const handleKeyDown = useCallback(
+    (event) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'ArrowLeft') go(-1);
+      if (event.key === 'ArrowRight') go(1);
+    },
+    [onClose, go]
+  );
+
   useEffect(() => {
     if (!isOpen) return;
-
     document.addEventListener('keydown', handleKeyDown);
-    // Prevent body scrolling while the lightbox is open
     document.body.style.overflow = 'hidden';
-
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
     };
   }, [isOpen, handleKeyDown]);
 
-  // Don't render anything when closed
-  if (!isOpen) return null;
+  if (!isOpen || !current?.src) return null;
 
-  /**
-   * Close when the backdrop (overlay itself) is clicked,
-   * but not when the image or close button is clicked.
-   */
   const handleOverlayClick = (event) => {
-    if (event.target === event.currentTarget) {
-      onClose();
-    }
+    if (event.target === event.currentTarget) onClose();
   };
 
   return (
@@ -62,24 +57,37 @@ function ImageLightbox({ src, alt = 'Image preview', isOpen, onClose }) {
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
-      aria-label="Image lightbox"
+      aria-label="Image gallery"
     >
-      {/* Close button in top-right corner */}
-      <button
-        className="lightbox-close"
-        onClick={onClose}
-        aria-label="Close lightbox"
-        type="button"
-      >
+      <button className="lightbox-close" onClick={onClose} aria-label="Close lightbox" type="button">
         ✕
       </button>
 
-      {/* The image, centered and scaled to fit */}
-      <img
-        className="lightbox-image"
-        src={src}
-        alt={alt}
-      />
+      {hasMany && (
+        <>
+          <button
+            type="button"
+            className="lightbox-nav lightbox-nav-prev"
+            onClick={() => go(-1)}
+            aria-label="Previous image"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className="lightbox-nav lightbox-nav-next"
+            onClick={() => go(1)}
+            aria-label="Next image"
+          >
+            ›
+          </button>
+          <div className="lightbox-counter">
+            {currentIndex + 1} / {gallery.length}
+          </div>
+        </>
+      )}
+
+      <img className="lightbox-image" src={current.src} alt={current.alt || alt} />
     </div>
   );
 }

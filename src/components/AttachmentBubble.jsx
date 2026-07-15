@@ -23,10 +23,37 @@ function MicIcon({ className }) {
   );
 }
 
-function isAudioAttachment(attachment) {
-  const mime = attachment?.mimetype || '';
+function DownloadIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+function kindOf(attachment) {
+  const mime = (attachment?.mimetype || '').toLowerCase();
   const name = (attachment?.filename || '').toLowerCase();
-  return mime.startsWith('audio/') || /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) || /^voice-note/i.test(name);
+  if (mime.startsWith('audio/') || /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) || /^voice-note/i.test(name)) {
+    return 'audio';
+  }
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name)) return 'image';
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return 'video';
+  if (mime === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  if (
+    mime.includes('word') ||
+    mime.includes('officedocument.wordprocessing') ||
+    /\.(docx?|odt|rtf)$/i.test(name)
+  ) {
+    return 'word';
+  }
+  if (mime.includes('zip') || mime.includes('compressed') || /\.(zip|rar|7z|tar|gz)$/i.test(name)) {
+    return 'zip';
+  }
+  if (mime.startsWith('text/') || /\.(txt|md|csv|json|log)$/i.test(name)) return 'text';
+  return 'file';
 }
 
 function formatDuration(seconds) {
@@ -40,6 +67,17 @@ function formatFileSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function typeLabel(kind) {
+  if (kind === 'pdf') return 'PDF';
+  if (kind === 'word') return 'Word';
+  if (kind === 'zip') return 'Archive';
+  if (kind === 'text') return 'Text';
+  if (kind === 'video') return 'Video';
+  if (kind === 'image') return 'Image';
+  if (kind === 'audio') return 'Audio';
+  return 'File';
 }
 
 function VoicePlayer({ url }) {
@@ -111,28 +149,38 @@ function VoicePlayer({ url }) {
   );
 }
 
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download';
+  a.click();
+}
+
 export default function AttachmentBubble({
   attachment: rawAttachment,
   isMine,
   resolveSecretKey,
   resolveAttachmentKey,
   onImagePreview,
+  onImageReady,
 }) {
   const attachment = normalizeAttachment(rawAttachment);
   const [status, setStatus] = useState('idle');
-  const [preview, setPreview] = useState(null);
-  const [audioUrl, setAudioUrl] = useState(null);
-  const audio = isAudioAttachment(attachment);
+  const [objectUrl, setObjectUrl] = useState(null);
+  const [textPreview, setTextPreview] = useState(null);
+  const [pdfExpanded, setPdfExpanded] = useState(false);
+  const kind = kindOf(attachment);
   const attachmentId = attachmentIdOf(attachment);
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
   const opened = pickAttachmentEnvelope(attachment, keyResolver);
+  const autoPreview = kind === 'audio' || kind === 'image' || kind === 'video' || kind === 'pdf' || kind === 'text';
 
   useEffect(() => {
     let revoked = null;
     let cancelled = false;
 
-    async function loadVoice() {
-      if (!audio || !attachmentId || !opened) return;
+    async function load() {
+      if (!autoPreview || !attachmentId || !opened) return;
 
       setStatus('loading');
       try {
@@ -143,69 +191,78 @@ export default function AttachmentBubble({
           setStatus('error');
           return;
         }
-        const mime = attachment.mimetype?.startsWith('audio/') ? attachment.mimetype : 'audio/webm';
-        const url = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
-        revoked = url;
-        setAudioUrl(url);
+
+        const mime =
+          attachment.mimetype ||
+          (kind === 'audio'
+            ? 'audio/webm'
+            : kind === 'pdf'
+              ? 'application/pdf'
+              : kind === 'image'
+                ? 'image/jpeg'
+                : kind === 'video'
+                  ? 'video/mp4'
+                  : kind === 'text'
+                    ? 'text/plain'
+                    : 'application/octet-stream');
+
+        if (kind === 'text') {
+          const text = new TextDecoder().decode(plainBytes).slice(0, 4000);
+          setTextPreview(text);
+          const url = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
+          revoked = url;
+          setObjectUrl(url);
+        } else {
+          const url = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
+          revoked = url;
+          setObjectUrl(url);
+          if (kind === 'image' && onImageReady) {
+            onImageReady(attachmentId, url, attachment.filename);
+          }
+        }
         setStatus('idle');
       } catch {
         if (!cancelled) setStatus('error');
       }
     }
 
-    loadVoice();
+    load();
     return () => {
       cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
   }, [
-    audio,
+    autoPreview,
     attachmentId,
     opened?.secretKey,
     opened?.envelope?.nonce,
     opened?.envelope?.targetPublicKey,
     attachment?.mimetype,
+    attachment?.filename,
+    kind,
   ]);
 
   if (!attachment) return null;
 
-  if (audioUrl) {
-    return <VoicePlayer url={audioUrl} />;
-  }
-
-  if (!opened && audio) {
+  if (!opened) {
     return (
       <div className="attachment-chip attachment-chip-disabled">
         <span className="attachment-filename">
-          <MicIcon className="file-icon" />
-          <span>Voice note</span>
+          {kind === 'audio' ? <MicIcon className="file-icon" /> : <FileIcon className="file-icon" />}
+          <span>{kind === 'audio' ? 'Voice note' : attachment.filename}</span>
         </span>
         <span className="attachment-note">
           {status === 'loading'
             ? 'Decrypting…'
             : isMine
-              ? "only the recipient can open this"
+              ? 'only the recipient can open this'
               : "can't decrypt on this device"}
         </span>
       </div>
     );
   }
 
-  if (!opened) {
-    return (
-      <div className="attachment-chip attachment-chip-disabled">
-        <span className="attachment-filename">
-          <FileIcon className="file-icon" />
-          <span>{attachment.filename}</span>
-        </span>
-        <span className="attachment-note">
-          {isMine ? 'only the recipient can open this' : "can't decrypt on this device"}
-        </span>
-      </div>
-    );
-  }
-
-  async function handleFetch() {
+  async function handleManualOpen() {
     setStatus('loading');
     try {
       const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
@@ -214,65 +271,144 @@ export default function AttachmentBubble({
         setStatus('error');
         return;
       }
-
       const mime = attachment.mimetype || 'application/octet-stream';
       const blob = new Blob([plainBytes], { type: mime });
       const url = URL.createObjectURL(blob);
-
-      if (audio || mime.startsWith('audio/')) {
-        setAudioUrl(url);
-        setStatus('idle');
-      } else if (mime.startsWith('image/')) {
-        setPreview(url);
-        setStatus('idle');
-      } else {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = attachment.filename;
-        a.click();
-        URL.revokeObjectURL(url);
-        setStatus('idle');
-      }
+      setObjectUrl(url);
+      triggerDownload(url, attachment.filename);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setStatus('idle');
     } catch {
       setStatus('error');
     }
   }
 
-  if (preview) {
+  function handleDownload() {
+    if (objectUrl) {
+      triggerDownload(objectUrl, attachment.filename);
+      return;
+    }
+    handleManualOpen();
+  }
+
+  if (kind === 'audio' && objectUrl) {
+    return <VoicePlayer url={objectUrl} />;
+  }
+
+  if (kind === 'image' && objectUrl) {
     return (
-      <img
-        className="attachment-preview"
-        src={preview}
-        alt={attachment.filename}
-        onClick={() => onImagePreview && onImagePreview(preview)}
-        role="button"
-        aria-label="Open image in full screen"
-      />
+      <div className="attachment-media">
+        <img
+          className="attachment-preview"
+          src={objectUrl}
+          alt={attachment.filename}
+          onClick={() => onImagePreview?.(attachmentId, objectUrl, attachment.filename)}
+          role="button"
+          aria-label="Open image gallery"
+        />
+        <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download image">
+          <DownloadIcon className="file-icon" />
+        </button>
+      </div>
     );
   }
 
-  if (status === 'loading' && (audio || attachment.mimetype?.startsWith('image/'))) {
-    return audio ? (
-      <div className="attachment-chip attachment-chip-voice">
-        <span className="attachment-filename">
-          <MicIcon className="file-icon" />
-          <span>Decrypting voice note…</span>
-        </span>
+  if (kind === 'video' && objectUrl) {
+    return (
+      <div className="attachment-media">
+        <video className="attachment-video" src={objectUrl} controls playsInline preload="metadata" />
+        <button type="button" className="attachment-download-fab" onClick={handleDownload} aria-label="Download video">
+          <DownloadIcon className="file-icon" />
+        </button>
       </div>
-    ) : (
-      <div className="skeleton attachment-preview-placeholder" />
+    );
+  }
+
+  if (kind === 'pdf' && objectUrl) {
+    return (
+      <div className="attachment-doc">
+        <div className="attachment-doc-header">
+          <span className="attachment-type-badge">PDF</span>
+          <span className="attachment-filename-text">{attachment.filename}</span>
+          {attachment.size ? <span className="attachment-note">({formatFileSize(attachment.size)})</span> : null}
+        </div>
+        {pdfExpanded ? (
+          <iframe className="attachment-pdf" src={objectUrl} title={attachment.filename} />
+        ) : (
+          <button type="button" className="attachment-pdf-thumb" onClick={() => setPdfExpanded(true)}>
+            <FileIcon className="file-icon" />
+            <span>Preview PDF</span>
+          </button>
+        )}
+        <div className="attachment-doc-actions">
+          {!pdfExpanded && (
+            <button type="button" onClick={() => setPdfExpanded(true)}>
+              Preview
+            </button>
+          )}
+          <button type="button" onClick={handleDownload}>
+            Download
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (kind === 'text' && (textPreview != null || objectUrl)) {
+    return (
+      <div className="attachment-doc">
+        <div className="attachment-doc-header">
+          <span className="attachment-type-badge">TXT</span>
+          <span className="attachment-filename-text">{attachment.filename}</span>
+        </div>
+        {textPreview != null && <pre className="attachment-text-preview">{textPreview}</pre>}
+        <div className="attachment-doc-actions">
+          <button type="button" onClick={handleDownload}>
+            Download
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'loading' && autoPreview) {
+    if (kind === 'audio') {
+      return (
+        <div className="attachment-chip attachment-chip-voice">
+          <span className="attachment-filename">
+            <MicIcon className="file-icon" />
+            <span>Decrypting voice note…</span>
+          </span>
+        </div>
+      );
+    }
+    return <div className="skeleton attachment-preview-placeholder" />;
+  }
+
+  if (status === 'error' && autoPreview) {
+    return (
+      <div className="attachment-chip">
+        <span className="attachment-filename">
+          <FileIcon className="file-icon" />
+          <span>{attachment.filename}</span>
+        </span>
+        <button type="button" onClick={handleManualOpen}>
+          Retry download
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className={`attachment-chip ${audio ? 'attachment-chip-voice' : ''}`}>
+    <div className={`attachment-chip ${kind === 'audio' ? 'attachment-chip-voice' : ''}`}>
       <span className="attachment-filename">
-        {audio ? <MicIcon className="file-icon" /> : <FileIcon className="file-icon" />}
-        <span>{audio ? 'Voice note' : attachment.filename}</span>
-        {attachment.size && <span className="attachment-note">({formatFileSize(attachment.size)})</span>}
+        {kind === 'audio' ? <MicIcon className="file-icon" /> : <FileIcon className="file-icon" />}
+        <span className="attachment-type-badge">{typeLabel(kind)}</span>
+        <span>{kind === 'audio' ? 'Voice note' : attachment.filename}</span>
+        {attachment.size ? <span className="attachment-note">({formatFileSize(attachment.size)})</span> : null}
       </span>
-      <button type="button" onClick={handleFetch} disabled={status === 'loading'}>
-        {status === 'loading' ? 'Decrypting…' : status === 'error' ? 'Failed — retry' : audio ? 'Play' : 'Open'}
+      <button type="button" onClick={handleManualOpen} disabled={status === 'loading'}>
+        {status === 'loading' ? 'Decrypting…' : status === 'error' ? 'Failed — retry' : 'Download'}
       </button>
     </div>
   );

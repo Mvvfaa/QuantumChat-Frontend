@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowDown,
+  Camera,
   Menu,
   MessageSquare,
   Mic,
   Paperclip,
+  Pin,
   Send,
   Smile,
   Square,
@@ -19,7 +21,7 @@ import { connectSocket, getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, sealBytes, pickRandom } from '../crypto/keys.js';
 import { formatKeyFile, downloadKeyFile, parseKeyFile } from '../crypto/keyFile.js';
 import { getCurrentKeySet, findSecretKeyForPublicKey } from '../crypto/keyStorage.js';
-import { normalizeAttachment, pickRecorderMimeType } from '../crypto/voiceCache.js';
+import { normalizeAttachment, pickRecorderMimeType, attachmentIdOf } from '../crypto/voiceCache.js';
 import { playReceiveSound, playSendSound } from '../utils/sounds.js';
 import {
   conversationKeyForGroup,
@@ -41,8 +43,20 @@ import ThemeSwitcher from '../components/ThemeSwitcher.jsx';
 import DateSeparator from '../components/DateSeparator.jsx';
 import MessageSearch from '../components/MessageSearch.jsx';
 import DragDropOverlay from '../components/DragDropOverlay.jsx';
+import TypingIndicator from '../components/TypingIndicator.jsx';
+import ForwardModal from '../components/ForwardModal.jsx';
+import CameraCapture from '../components/CameraCapture.jsx';
+import ImageLightbox from '../components/ImageLightbox.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import { getHiddenChatIds, hideChat, unhideChat } from '../utils/hiddenChats.js';
+import {
+  deleteMessageForMe,
+  getDeletedForMeIds,
+  getPinnedIds,
+  getStarredIds,
+  togglePinnedMessage,
+  toggleStarredMessage,
+} from '../utils/messageExtras.js';
 
 const MAX_VOICE_SECONDS = 60;
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
@@ -115,9 +129,26 @@ export default function Chat() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [peerTyping, setPeerTyping] = useState(false);
+  const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
+  const [deletedForMeIds, setDeletedForMeIds] = useState(() => getDeletedForMeIds(user?.id));
+  const [starredIds, setStarredIds] = useState(() => getStarredIds(user?.id));
+  const [pinnedIds, setPinnedIds] = useState([]);
+  const [forwardMessage, setForwardMessage] = useState(null);
+  const [forwardBusy, setForwardBusy] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [extrasTick, setExtrasTick] = useState(0);
+  const [uploads, setUploads] = useState([]);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [gallery, setGallery] = useState(null);
 
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
+  const typingPeerTimeoutRef = useRef(null);
+  const loadingOlderRef = useRef(false);
+  const oldestCreatedAtRef = useRef(null);
+  const loadOlderMessagesRef = useRef(null);
   const fileInputRef = useRef(null);
   const keyFileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -129,6 +160,7 @@ export default function Chat() {
   const recordStartedAtRef = useRef(0);
   const dragCountRef = useRef(0);
   const typingTimeoutRef = useRef(null);
+  const imageSrcMapRef = useRef(new Map());
   selectedRef.current = selected;
 
   const bumpActivity = useCallback(() => setActivityTick((n) => n + 1), []);
@@ -151,7 +183,10 @@ export default function Chat() {
     if (!isUp) {
       setHasUnread(false);
     }
-  }, []);
+    if (el.scrollTop < 80 && hasMoreMessages && !loadingOlderRef.current) {
+      loadOlderMessagesRef.current?.();
+    }
+  }, [hasMoreMessages]);
 
   const resolveMySecretKey = useCallback(
     (targetPublicKeyHex) => findSecretKeyForPublicKey(user.id, targetPublicKeyHex),
@@ -328,6 +363,11 @@ export default function Chat() {
         }
         return next;
       });
+
+      if (String(raw.from) !== String(user.id) && !raw.group) {
+        const socket = getSocket();
+        socket?.emit('message:delivered', { messageId: raw.id || raw._id });
+      }
     }
 
     function handleDeleted(payload) {
@@ -359,17 +399,95 @@ export default function Chat() {
       });
     }
 
+    function handleTypingStart({ from } = {}) {
+      const current = selectedRef.current;
+      if (!current || current.type !== 'dm') return;
+      if (String(from) !== String(current.id)) return;
+      setPeerTyping(true);
+      clearTimeout(typingPeerTimeoutRef.current);
+      typingPeerTimeoutRef.current = setTimeout(() => setPeerTyping(false), 3000);
+    }
+
+    function handleTypingStop({ from } = {}) {
+      const current = selectedRef.current;
+      if (!current || current.type !== 'dm') return;
+      if (String(from) !== String(current.id)) return;
+      setPeerTyping(false);
+    }
+
+    function handlePresenceSnapshot({ onlineUserIds: ids } = {}) {
+      setOnlineUserIds(new Set((ids || []).map(String)));
+    }
+
+    function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
+      setOnlineUserIds((prev) => {
+        const next = new Set(prev);
+        if (online) next.add(String(userId));
+        else next.delete(String(userId));
+        return next;
+      });
+      if (!online && lastLoginAt) {
+        setUsers((prev) =>
+          prev.map((u) => (String(u.id) === String(userId) ? { ...u, lastLoginAt } : u))
+        );
+      }
+    }
+
+    function handleMessageStatus(payload) {
+      if (!payload) return;
+      if (payload.bulk && payload.conversationWith) {
+        const peer = String(payload.conversationWith);
+        setMessages((prev) =>
+          prev.map((m) =>
+            String(m.to) === peer || String(m.from) === peer
+              ? {
+                  ...m,
+                  deliveredAt: m.deliveredAt || payload.readAt,
+                  readAt: String(m.from) === String(user.id) ? payload.readAt || m.readAt : m.readAt,
+                }
+              : m
+          )
+        );
+        return;
+      }
+      const id = String(payload.id || '');
+      if (!id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.id || m._id) === id
+            ? {
+                ...m,
+                deliveredAt: payload.deliveredAt || m.deliveredAt,
+                readAt: payload.readAt || m.readAt,
+                _status: undefined,
+              }
+            : m
+        )
+      );
+    }
+
     socket.on('message:new', handleIncoming);
     socket.on('message:deleted', handleDeleted);
     socket.on('message:reaction', handleReaction);
     socket.on('message:edited', handleEdited);
     socket.on('group:new', handleGroupNew);
+    socket.on('typing:start', handleTypingStart);
+    socket.on('typing:stop', handleTypingStop);
+    socket.on('presence:snapshot', handlePresenceSnapshot);
+    socket.on('presence:update', handlePresenceUpdate);
+    socket.on('message:status', handleMessageStatus);
     return () => {
       socket.off('message:new', handleIncoming);
       socket.off('message:deleted', handleDeleted);
       socket.off('message:reaction', handleReaction);
       socket.off('message:edited', handleEdited);
       socket.off('group:new', handleGroupNew);
+      socket.off('typing:start', handleTypingStart);
+      socket.off('typing:stop', handleTypingStop);
+      socket.off('presence:snapshot', handlePresenceSnapshot);
+      socket.off('presence:update', handlePresenceUpdate);
+      socket.off('message:status', handleMessageStatus);
+      clearTimeout(typingPeerTimeoutRef.current);
     };
   }, [hasLocalKeyring, user, decorate, scrollToBottom, recordActivityFromMessage, bumpActivity]);
 
@@ -377,59 +495,87 @@ export default function Chat() {
     if (!selected || !hasLocalKeyring) return undefined;
 
     let cancelled = false;
-    let firstLoad = true;
+    setPeerTyping(false);
+    setHasMoreMessages(false);
+    oldestCreatedAtRef.current = null;
+    setPinnedIds(getPinnedIds(user.id, selected.key));
+
     const endpoint =
       selected.type === 'group' ? `/groups/${selected.id}/messages` : `/messages/${selected.id}`;
 
-    const fetchMessages = () => {
-      if (firstLoad) setLoadingMessages(true);
-      client
-        .get(endpoint)
-        .then((res) => {
-          if (cancelled) return;
-          const next = (res.data.data || []).map(decorate);
-          if (next.length) {
-            const last = next[next.length - 1];
-            recordActivityFromMessage(last);
-          }
-          setMessages((prev) => {
-            const same =
-              prev.length === next.length &&
-              prev.every((m, i) => (m.id || m._id) === (next[i].id || next[i]._id));
-            if (!same && !firstLoad) {
-              const prevIds = new Set(prev.map((m) => String(m.id || m._id)));
-              const hasNewIncoming = next.some(
-                (m) => !prevIds.has(String(m.id || m._id)) && String(m.from) !== String(user.id)
-              );
-              if (hasNewIncoming) playReceiveSound();
-            }
-            return same ? prev : next;
-          });
-          if (firstLoad) {
-            markConversationRead(user.id, selected.key);
-            bumpActivity();
-            setTimeout(() => scrollToBottom('auto'), 50);
-          }
-        })
-        .finally(() => {
-          if (firstLoad) {
-            setLoadingMessages(false);
-            firstLoad = false;
-          }
-        });
-    };
+    setLoadingMessages(true);
+    client
+      .get(endpoint, { params: { limit: 80, markRead: 1 } })
+      .then((res) => {
+        if (cancelled) return;
+        const next = (res.data.data || []).map(decorate);
+        setHasMoreMessages(Boolean(res.data.meta?.hasMore));
+        oldestCreatedAtRef.current = next[0]?.createdAt || null;
+        if (next.length) {
+          const last = next[next.length - 1];
+          recordActivityFromMessage(last);
+        }
+        setMessages(next);
+        markConversationRead(user.id, selected.key);
+        bumpActivity();
+        if (selected.type === 'dm') {
+          client.post(`/messages/${selected.id}/read`).catch(() => {});
+        }
+        setTimeout(() => scrollToBottom('auto'), 50);
+      })
+      .catch((err) => showToast(err.response?.data?.error || 'Failed to load messages', 'error'))
+      .finally(() => {
+        if (!cancelled) setLoadingMessages(false);
+      });
 
-    fetchMessages();
-    const intervalId = setInterval(fetchMessages, 3000);
     return () => {
       cancelled = true;
-      clearInterval(intervalId);
     };
-  }, [selected, hasLocalKeyring, decorate, scrollToBottom, user.id, recordActivityFromMessage, bumpActivity]);
+  }, [selected, hasLocalKeyring, decorate, scrollToBottom, user.id, recordActivityFromMessage, bumpActivity, showToast]);
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!selected || !hasMoreMessages || loadingOlderRef.current || !oldestCreatedAtRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const el = messageListRef.current;
+    const prevHeight = el?.scrollHeight || 0;
+    const endpoint =
+      selected.type === 'group' ? `/groups/${selected.id}/messages` : `/messages/${selected.id}`;
+    try {
+      const { data } = await client.get(endpoint, {
+        params: { limit: 40, before: oldestCreatedAtRef.current, markRead: 0 },
+      });
+      const older = (data.data || []).map(decorate);
+      setHasMoreMessages(Boolean(data.meta?.hasMore));
+      if (older.length) {
+        oldestCreatedAtRef.current = older[0].createdAt;
+        setMessages((prev) => {
+          const ids = new Set(prev.map((m) => String(m.id || m._id)));
+          const merged = [...older.filter((m) => !ids.has(String(m.id || m._id))), ...prev];
+          return merged;
+        });
+        requestAnimationFrame(() => {
+          if (el) el.scrollTop = el.scrollHeight - prevHeight;
+        });
+      }
+    } catch {
+      // ignore
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [selected, hasMoreMessages, decorate]);
+
+  loadOlderMessagesRef.current = loadOlderMessages;
+
+  // Keep auto-scroll only when near bottom for new messages — avoid jump on older loads
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (loadingOlder) return;
+    const el = messageListRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loadingOlder]);
 
   const canChat = hasLocalKeyring;
   const isGroupChat = selected?.type === 'group';
@@ -524,6 +670,8 @@ export default function Chat() {
     setShowEmojiPicker(false);
     setSearchOpen(false);
     setSidebarOpen(false);
+    setGallery(null);
+    imageSrcMapRef.current = new Map();
     markConversationRead(user.id, c.key);
     bumpActivity();
   }
@@ -754,7 +902,7 @@ export default function Chat() {
     }
   }
 
-  async function sendAttachmentFile(file, { plainBytes } = {}) {
+  async function sendAttachmentFile(file, { plainBytes, quiet } = {}) {
     if (!file || !selected || selected.type !== 'dm') return;
 
     if (file.size > MAX_FILE_SIZE) {
@@ -774,6 +922,10 @@ export default function Chat() {
     const forRecipientFile = sealBytes(fileBytes, recipientPublicKey);
     const forSenderFile = sealBytes(fileBytes, myKey.publicKey);
 
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const controller = new AbortController();
+    setUploads((prev) => [...prev, { id: uploadId, name: file.name, progress: 0, controller }]);
+
     const formData = new FormData();
     formData.append(
       'file',
@@ -792,37 +944,104 @@ export default function Chat() {
     formData.append('forSenderNonce', forSenderFile.nonce);
     formData.append('forSenderEphemeralPublicKey', forSenderFile.ephemeralPublicKey);
     formData.append('forSenderTargetPublicKey', forSenderFile.targetPublicKey);
-    const uploadRes = await client.post('/attachments', formData);
-    const attachmentId = uploadRes.data.data.id;
 
-    const forRecipient = sealMessage('', recipientPublicKey);
-    const forSender = sealMessage('', myKey.publicKey);
-    const { data } = await client.post('/messages', {
-      to: selected.id,
-      forRecipient,
-      forSender,
-      attachmentId,
+    try {
+      const uploadRes = await client.post('/attachments', formData, {
+        signal: controller.signal,
+        onUploadProgress: (event) => {
+          if (!event.total) return;
+          const progress = Math.min(100, Math.round((event.loaded / event.total) * 100));
+          setUploads((prev) => prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)));
+        },
+      });
+      const attachmentId = uploadRes.data.data.id;
+
+      const forRecipient = sealMessage('', recipientPublicKey);
+      const forSender = sealMessage('', myKey.publicKey);
+      const { data } = await client.post('/messages', {
+        to: selected.id,
+        forRecipient,
+        forSender,
+        attachmentId,
+      });
+      recordActivityFromMessage(data.data);
+      setMessages((prev) => {
+        const id = String(data.data.id || data.data._id);
+        if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+        return [...prev, decorate(data.data)];
+      });
+      playSendSound();
+      if (!quiet) showToast('File sent successfully', 'success', 3000);
+      setTimeout(() => scrollToBottom('smooth'), 50);
+    } catch (err) {
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {
+        showToast('Upload cancelled', 'info', 2500);
+        return;
+      }
+      throw err;
+    } finally {
+      setUploads((prev) => prev.filter((u) => u.id !== uploadId));
+    }
+  }
+
+  function cancelUpload(uploadId) {
+    setUploads((prev) => {
+      const item = prev.find((u) => u.id === uploadId);
+      item?.controller?.abort();
+      return prev;
     });
-    recordActivityFromMessage(data.data);
-    setMessages((prev) => {
-      const id = String(data.data.id || data.data._id);
-      if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-      return [...prev, decorate(data.data)];
-    });
-    playSendSound();
-    showToast('File sent successfully', 'success', 3000);
-    setTimeout(() => scrollToBottom('smooth'), 50);
+  }
+
+  async function sendAttachmentFiles(filesOrFile) {
+    const list = Array.isArray(filesOrFile) ? filesOrFile : filesOrFile ? [filesOrFile] : [];
+    const files = list.filter(Boolean);
+    if (!files.length || !selected || selected.type !== 'dm') return;
+
+    let ok = 0;
+    let failed = 0;
+    for (const file of files) {
+      try {
+        await sendAttachmentFile(file, { quiet: files.length > 1 });
+        ok += 1;
+      } catch (err) {
+        failed += 1;
+        showToast(err.response?.data?.error || err.message || `Failed to send ${file.name}`, 'error');
+      }
+    }
+    if (files.length > 1 && ok > 0) {
+      showToast(`${ok} file${ok === 1 ? '' : 's'} sent${failed ? `, ${failed} failed` : ''}`, failed ? 'error' : 'success', 3500);
+    }
   }
 
   async function handleFileChange(e) {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files || []);
     e.target.value = '';
-    if (!file || !selected || selected.type !== 'dm') return;
-    try {
-      await sendAttachmentFile(file);
-    } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to send attachment', 'error');
+    if (!files.length || !selected || selected.type !== 'dm') return;
+    await sendAttachmentFiles(files);
+  }
+
+  function handlePaste(e) {
+    if (!selected || selected.type !== 'dm' || sendingVoice || recording) return;
+    const items = e.clipboardData?.items;
+    if (!items?.length) return;
+    const imageFiles = [];
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          const named =
+            file.name && file.name !== 'image.png'
+              ? file
+              : new File([file], `paste-${Date.now()}.png`, { type: file.type || 'image/png' });
+          imageFiles.push(named);
+        }
+      }
     }
+    if (!imageFiles.length) return;
+    e.preventDefault();
+    sendAttachmentFiles(imageFiles).catch((err) => {
+      showToast(err.message || 'Paste upload failed', 'error');
+    });
   }
 
   // Drag and drop events
@@ -846,12 +1065,36 @@ export default function Chat() {
     e.preventDefault();
     dragCountRef.current = 0;
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      sendAttachmentFile(file).catch((err) => {
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) {
+      sendAttachmentFiles(files).catch((err) => {
         showToast(err.message || 'File drop failed', 'error');
       });
     }
+  }
+
+  function handleImageReady(id, src, filename) {
+    if (!id || !src) return;
+    imageSrcMapRef.current.set(String(id), { src, alt: filename || 'Image' });
+  }
+
+  function handleImagePreview(id) {
+    const items = [];
+    for (const m of messages) {
+      const attId = attachmentIdOf(m.attachment);
+      if (!attId) continue;
+      const entry = imageSrcMapRef.current.get(String(attId));
+      if (entry) items.push({ id: String(attId), ...entry });
+    }
+    if (!items.length) {
+      const fallback = imageSrcMapRef.current.get(String(id));
+      if (fallback) {
+        setGallery({ items: [{ id: String(id), ...fallback }], index: 0 });
+      }
+      return;
+    }
+    const index = Math.max(0, items.findIndex((it) => it.id === String(id)));
+    setGallery({ items, index: index < 0 ? 0 : index });
   }
 
   function clearRecordingResources({ keepChunks = false } = {}) {
@@ -991,6 +1234,74 @@ export default function Chat() {
     });
   }
 
+  function handleDeleteForMe(messageId) {
+    setDeletedForMeIds(deleteMessageForMe(user.id, messageId));
+    setExtrasTick((n) => n + 1);
+    showToast('Message removed for you', 'success');
+  }
+
+  function handleCopyMessage(message) {
+    if (!message?.text) return;
+    navigator.clipboard?.writeText(message.text).then(
+      () => showToast('Copied to clipboard', 'success'),
+      () => showToast('Could not copy message', 'error')
+    );
+  }
+
+  function handleStarMessage(messageId) {
+    setStarredIds(toggleStarredMessage(user.id, messageId));
+    setExtrasTick((n) => n + 1);
+  }
+
+  function handlePinMessage(messageId) {
+    if (!selected?.key) return;
+    setPinnedIds(togglePinnedMessage(user.id, selected.key, messageId));
+    setExtrasTick((n) => n + 1);
+  }
+
+  function handleJumpToReply(replyId) {
+    if (!replyId) return;
+    handleSearchResult(String(replyId));
+  }
+
+  async function handleForwardToConversation(target) {
+    if (!forwardMessage?.text || !target || target.type !== 'dm') return;
+    setForwardBusy(true);
+    try {
+      const peer = target.peer || users.find((u) => String(u.id) === String(target.id));
+      const myKey = pickRandom(getCurrentKeySet(user.id));
+      const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+      if (!myKey?.publicKey || recipientKeys.length === 0) {
+        showToast('Missing encryption keys for this conversation', 'error');
+        return;
+      }
+      const forRecipient = sealMessage(forwardMessage.text, pickRandom(recipientKeys));
+      const forSender = sealMessage(forwardMessage.text, myKey.publicKey);
+      const { data } = await client.post('/messages', {
+        to: target.id,
+        forRecipient,
+        forSender,
+        forwardedFrom: {
+          username: user.username,
+          messageId: forwardMessage.id || forwardMessage._id,
+        },
+      });
+      if (selected?.key === target.key) {
+        setMessages((prev) => {
+          const id = String(data.data.id || data.data._id);
+          if (prev.some((m) => String(m.id || m._id) === id)) return prev;
+          return [...prev, decorate(data.data)];
+        });
+      }
+      showToast(`Forwarded to ${target.title}`, 'success');
+      setForwardMessage(null);
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to forward message', 'error');
+    } finally {
+      setForwardBusy(false);
+    }
+  }
+
   async function executeDeleteMessage(messageId) {
     try {
       setConfirmBusy(true);
@@ -1122,28 +1433,41 @@ export default function Chat() {
       const count = (group?.members || []).length;
       return count ? `${count} members` : 'Group chat';
     }
+    if (onlineUserIds.has(String(selected.id))) return 'online';
+    if (peerTyping) return 'typing…';
     const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
     return formatLastSeen(peer?.lastLoginAt);
-  }, [selected, groups, users]);
+  }, [selected, groups, users, onlineUserIds, peerTyping]);
 
   const headerOnline = useMemo(() => {
     if (!selected || selected.type !== 'dm') return false;
+    if (onlineUserIds.has(String(selected.id))) return true;
     const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
     return isRecentlyActive(peer?.lastLoginAt);
-  }, [selected, users]);
+  }, [selected, users, onlineUserIds]);
+
+  const visibleMessages = useMemo(() => {
+    const deleted = new Set(deletedForMeIds.map(String));
+    return messages.filter((m) => !deleted.has(String(m.id || m._id)));
+  }, [messages, deletedForMeIds, extrasTick]);
+
+  const pinnedMessages = useMemo(() => {
+    const set = new Set(pinnedIds.map(String));
+    return visibleMessages.filter((m) => set.has(String(m.id || m._id)));
+  }, [visibleMessages, pinnedIds]);
 
   // Build message list with date separators
   const messagesWithSeparators = useMemo(() => {
     const items = [];
-    messages.forEach((m, i) => {
-      const prev = messages[i - 1];
+    visibleMessages.forEach((m, i) => {
+      const prev = visibleMessages[i - 1];
       if (!prev || !isSameDay(prev.createdAt, m.createdAt)) {
         items.push({ type: 'separator', date: m.createdAt, key: `sep-${m.createdAt}` });
       }
       items.push({ type: 'message', data: m, key: m.id || m._id });
     });
     return items;
-  }, [messages]);
+  }, [visibleMessages]);
 
   // Floating chat bubbles for empty state
   const floatingBubbles = useMemo(() => {
@@ -1290,7 +1614,11 @@ export default function Chat() {
 
             {searchOpen && selected && (
               <MessageSearch
-                messages={messages}
+                messages={visibleMessages.map((m) => ({
+                  id: m.id || m._id,
+                  text: m.text,
+                  timestamp: m.createdAt,
+                }))}
                 onResultSelect={handleSearchResult}
                 isOpen={searchOpen}
                 onClose={() => setSearchOpen(false)}
@@ -1308,8 +1636,51 @@ export default function Chat() {
               </div>
             ) : (
               <>
+                {pinnedMessages.length > 0 && (
+                  <div className="pinned-messages-bar">
+                    {pinnedMessages.slice(0, 3).map((m) => (
+                      <button
+                        key={m.id || m._id}
+                        type="button"
+                        className="pinned-message-chip"
+                        onClick={() => handleSearchResult(m.id || m._id)}
+                      >
+                        <Pin size={12} />
+                        <span>{m.text || (m.attachment ? 'Attachment' : 'Pinned message')}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {isDragging && (
-                  <DragDropOverlay isVisible={true} onFileDrop={sendAttachmentFile} />
+                  <DragDropOverlay isVisible={true} onFileDrop={sendAttachmentFiles} />
+                )}
+
+                {uploads.length > 0 && (
+                  <div className="upload-progress-panel" aria-live="polite">
+                    {uploads.map((u) => (
+                      <div key={u.id} className="upload-progress-row">
+                        <div className="upload-progress-meta">
+                          <span className="upload-progress-name" title={u.name}>
+                            Encrypting & uploading {u.name}
+                          </span>
+                          <span className="upload-progress-pct">{u.progress}%</span>
+                        </div>
+                        <div className="upload-progress-track">
+                          <div className="upload-progress-fill" style={{ width: `${u.progress}%` }} />
+                        </div>
+                        <button
+                          type="button"
+                          className="upload-progress-cancel"
+                          onClick={() => cancelUpload(u.id)}
+                          aria-label={`Cancel upload of ${u.name}`}
+                        >
+                          <X size={14} strokeWidth={2} />
+                          Cancel
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
 
                 <AnimatePresence mode="wait">
@@ -1323,6 +1694,12 @@ export default function Chat() {
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                   >
+                    {loadingOlder && <div className="load-older-hint">Loading earlier messages…</div>}
+                    {hasMoreMessages && !loadingOlder && (
+                      <button type="button" className="load-older-btn" onClick={loadOlderMessages}>
+                        Load earlier messages
+                      </button>
+                    )}
                     {loadingMessages ? (
                       <>
                         <div className="skeleton-message-bubble theirs skeleton" />
@@ -1344,16 +1721,18 @@ export default function Chat() {
                           prevMsg &&
                           String(prevMsg.from) === String(m.from) &&
                           new Date(m.createdAt) - new Date(prevMsg.createdAt) < 120000;
+                        const mid = String(m.id || m._id);
 
                         return (
-                          <div key={item.key} id={`msg-${m.id || m._id}`}>
+                          <div key={item.key} id={`msg-${mid}`}>
                             <MessageBubble
-                              key={m.id || m._id}
                               message={m}
                               isMine={String(m.from) === String(user.id)}
                               currentUserId={user.id}
                               resolveSecretKey={resolveMySecretKey}
                               grouped={isGrouped}
+                              starred={starredIds.map(String).includes(mid)}
+                              pinned={pinnedIds.map(String).includes(mid)}
                               senderLabel={
                                 isGroupChat ? usernameById.get(String(m.from)) || 'Member' : undefined
                               }
@@ -1366,7 +1745,15 @@ export default function Chat() {
                                   : null
                               }
                               onDelete={handleDeleteMessage}
+                              onDeleteForMe={handleDeleteForMe}
                               onReact={handleReactMessage}
+                              onCopy={handleCopyMessage}
+                              onForward={setForwardMessage}
+                              onStar={handleStarMessage}
+                              onPin={handlePinMessage}
+                              onJumpToReply={handleJumpToReply}
+                              onImagePreview={handleImagePreview}
+                              onImageReady={handleImageReady}
                               onReply={(msg) => {
                                 setEditingMessage(null);
                                 setReplyTo(msg);
@@ -1381,6 +1768,10 @@ export default function Chat() {
                         );
                       })
                     )}
+                    <TypingIndicator
+                      isTyping={peerTyping && selected.type === 'dm'}
+                      username={selected.title}
+                    />
                     <div ref={bottomRef} />
                   </motion.div>
                 </AnimatePresence>
@@ -1452,20 +1843,31 @@ export default function Chat() {
                     <div className="composer-hint">
                       <span><kbd>Enter</kbd> send</span>
                       <span><kbd>Shift</kbd>+<kbd>Enter</kbd> new line</span>
-                      <span><kbd>Ctrl</kbd>+<kbd>K</kbd> search</span>
-                      <span style={{ marginLeft: 'auto', opacity: 0.6 }}>Max file: 15 MB</span>
+                      <span><kbd>Ctrl</kbd>+<kbd>V</kbd> paste image</span>
+                      <span style={{ marginLeft: 'auto', opacity: 0.6 }}>Max 15 MB · multi-file OK</span>
                     </div>
                     <form className="composer" onSubmit={handleSend}>
                       {!isGroupChat && (
-                        <button
-                          type="button"
-                          className="attach-button"
-                          onClick={() => fileInputRef.current?.click()}
-                          aria-label="Attach file to message"
-                          disabled={sendingVoice}
-                        >
-                          <Paperclip size={20} strokeWidth={2} aria-hidden="true" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="attach-button"
+                            onClick={() => fileInputRef.current?.click()}
+                            aria-label="Attach files to message"
+                            disabled={sendingVoice || uploads.length > 0}
+                          >
+                            <Paperclip size={20} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="attach-button"
+                            onClick={() => setCameraOpen(true)}
+                            aria-label="Capture photo with camera"
+                            disabled={sendingVoice || uploads.length > 0}
+                          >
+                            <Camera size={20} strokeWidth={2} aria-hidden="true" />
+                          </button>
+                        </>
                       )}
                       <button
                         type="button"
@@ -1476,20 +1878,30 @@ export default function Chat() {
                       >
                         <Smile size={20} strokeWidth={2} aria-hidden="true" />
                       </button>
-                      <input ref={fileInputRef} type="file" hidden onChange={handleFileChange} />
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        hidden
+                        multiple
+                        accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.odt,.rtf,.zip,.rar,.7z,.txt,.csv,.json"
+                        onChange={handleFileChange}
+                      />
                       <textarea
                         ref={textareaRef}
                         placeholder={
                           sendingVoice
                             ? 'Sending voice note…'
-                            : isGroupChat
-                              ? 'Type an encrypted group message…'
-                              : 'Type an encrypted message…'
+                            : uploads.length
+                              ? 'Uploading encrypted file…'
+                              : isGroupChat
+                                ? 'Type an encrypted group message…'
+                                : 'Type an encrypted message…'
                         }
                         value={draft}
                         onChange={handleDraftChange}
                         onInput={handleTextareaInput}
                         onKeyDown={handleTextareaKeyDown}
+                        onPaste={handlePaste}
                         aria-label="Type message body"
                         disabled={sendingVoice}
                         rows={1}
@@ -1508,7 +1920,7 @@ export default function Chat() {
                           className="send-button voice-mic-btn"
                           onClick={startVoiceRecording}
                           aria-label="Record voice note"
-                          disabled={sendingVoice}
+                          disabled={sendingVoice || uploads.length > 0}
                         >
                           <Mic size={18} strokeWidth={2} aria-hidden="true" />
                         </button>
@@ -1551,6 +1963,15 @@ export default function Chat() {
         />
       )}
 
+      {forwardMessage && (
+        <ForwardModal
+          conversations={conversations}
+          busy={forwardBusy}
+          onClose={() => !forwardBusy && setForwardMessage(null)}
+          onForward={handleForwardToConversation}
+        />
+      )}
+
       {logoutConfirmOpen && (
         <ConfirmDialog
           open={logoutConfirmOpen}
@@ -1563,6 +1984,24 @@ export default function Chat() {
           onCancel={() => setLogoutConfirmOpen(false)}
         />
       )}
+
+      <CameraCapture
+        open={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={(file) => {
+          sendAttachmentFiles(file).catch((err) => {
+            showToast(err.message || 'Camera upload failed', 'error');
+          });
+        }}
+      />
+
+      <ImageLightbox
+        isOpen={Boolean(gallery)}
+        items={gallery?.items || []}
+        index={gallery?.index || 0}
+        onIndexChange={(next) => setGallery((g) => (g ? { ...g, index: next } : g))}
+        onClose={() => setGallery(null)}
+      />
     </div>
   );
 }
