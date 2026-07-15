@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Ban, Users, UserPlus, X } from 'lucide-react';
+import { Archive, Ban, BellOff, Users, UserPlus, VolumeX, X } from 'lucide-react';
 
 function isRecentlyActive(iso) {
   if (!iso) return false;
@@ -22,6 +22,7 @@ const FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
   { id: 'groups', label: 'Groups' },
+  { id: 'archived', label: 'Archived' },
 ];
 
 export default function ConversationList({
@@ -33,6 +34,8 @@ export default function ConversationList({
   onCreateGroup,
   onHide,
   onBlock,
+  onMute,
+  onArchive,
   loading,
   searchQuery = '',
 }) {
@@ -87,7 +90,7 @@ export default function ConversationList({
                   onSelect(c);
                 }
               }}
-              aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}`}
+              aria-label={`${c.type === 'group' ? 'Group' : 'Chat'} ${c.title}${c.unread ? ', unread' : ''}${c.muted ? ', muted' : ''}`}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.22, delay: Math.min(index * 0.02, 0.16) }}
@@ -99,20 +102,53 @@ export default function ConversationList({
                 ) : (
                   <>
                     {(c.title || '?').slice(0, 2).toUpperCase()}
-                    {isRecentlyActive(c.lastLoginAt) && <span className="online-dot" />}
+                    {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
                   </>
                 )}
               </span>
               <span className="user-list-meta">
                 <span className="user-list-name-row">
                   <span className="user-list-name">{c.title}</span>
+                  {c.muted && (
+                    <span className="conv-muted-icon" title="Muted" aria-label="Muted">
+                      <BellOff size={12} strokeWidth={2} aria-hidden="true" />
+                    </span>
+                  )}
                   {c.unread && <span className="unread-dot" aria-hidden="true" />}
                 </span>
                 <span className="user-list-lastseen">{c.subtitle || formatShortLastSeen(c.lastLoginAt)}</span>
               </span>
-              {c.type === 'dm' && (onHide || onBlock) && (
+              {(onHide || onBlock || onMute || onArchive) && (
                 <span className="user-list-actions">
-                  {onHide && (
+                  {onMute && (
+                    <button
+                      type="button"
+                      className="user-list-action-btn"
+                      title={c.muted ? 'Unmute' : 'Mute'}
+                      aria-label={`${c.muted ? 'Unmute' : 'Mute'} ${c.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onMute(c);
+                      }}
+                    >
+                      <VolumeX size={16} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  )}
+                  {onArchive && (
+                    <button
+                      type="button"
+                      className="user-list-action-btn"
+                      title={c.archived ? 'Unarchive' : 'Archive'}
+                      aria-label={`${c.archived ? 'Unarchive' : 'Archive'} ${c.title}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onArchive(c);
+                      }}
+                    >
+                      <Archive size={16} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  )}
+                  {c.type === 'dm' && onHide && (
                     <button
                       type="button"
                       className="user-list-action-btn"
@@ -126,7 +162,7 @@ export default function ConversationList({
                       <X size={16} strokeWidth={2} aria-hidden="true" />
                     </button>
                   )}
-                  {onBlock && (
+                  {c.type === 'dm' && onBlock && (
                     <button
                       type="button"
                       className="user-list-action-btn danger"
@@ -152,7 +188,9 @@ export default function ConversationList({
                   ? 'No unread conversations.'
                   : filter === 'groups'
                     ? 'No groups yet. Create one to get started.'
-                    : 'No conversations yet.'}
+                    : filter === 'archived'
+                      ? 'No archived conversations.'
+                      : 'No conversations yet.'}
             </p>
           )}
         </div>

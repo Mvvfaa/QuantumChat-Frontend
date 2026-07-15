@@ -5,6 +5,9 @@ import { ThemeProvider } from './context/ThemeContext.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import Register from './pages/Register.jsx';
 import Login from './pages/Login.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
+import VerifyEmail from './pages/VerifyEmail.jsx';
 import Chat from './pages/Chat.jsx';
 import JoinInvite from './components/JoinInvite.jsx';
 import Landing from './pages/Landing.jsx';
@@ -18,6 +21,9 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/register" element={<Register />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route
               path="/join/:code"
               element={

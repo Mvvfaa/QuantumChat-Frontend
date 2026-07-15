@@ -63,6 +63,13 @@ import ImageLightbox from '../components/ImageLightbox.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import { getHiddenChatIds, hideChat, unhideChat } from '../utils/hiddenChats.js';
 import {
+  getMutedChatKeys,
+  getArchivedChatKeys,
+  toggleMuteChat,
+  toggleArchiveChat,
+  isChatMuted,
+} from '../utils/chatPrefs.js';
+import {
   deleteMessageForMe,
   getDeletedForMeIds,
   getPinnedIds,
@@ -134,6 +141,8 @@ export default function Chat() {
   const [sendingVoice, setSendingVoice] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [hiddenChatIds, setHiddenChatIds] = useState(() => getHiddenChatIds(user?.id));
+  const [mutedKeys, setMutedKeys] = useState(() => getMutedChatKeys(user?.id));
+  const [archivedKeys, setArchivedKeys] = useState(() => getArchivedChatKeys(user?.id));
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [activityTick, setActivityTick] = useState(0);
@@ -356,7 +365,14 @@ export default function Chat() {
       if (!isCurrentConversation(raw)) return;
 
       if (String(raw.from) !== String(user.id)) {
-        playReceiveSound();
+        const convKey = raw.group
+          ? conversationKeyForGroup(raw.group)
+          : conversationKeyForUser(
+              String(raw.from) === String(user.id) ? raw.to : raw.from
+            );
+        if (!isChatMuted(user.id, convKey)) {
+          playReceiveSound();
+        }
         if (selectedRef.current?.key) {
           markConversationRead(
             user.id,
@@ -686,21 +702,29 @@ export default function Chat() {
     const hidden = new Set(hiddenChatIds);
     const items = [];
 
+    const muted = new Set(mutedKeys.map(String));
+    const archived = new Set(archivedKeys.map(String));
+
     for (const u of users) {
       const key = conversationKeyForUser(u.id);
       const activity = getConversationActivity(user.id, key);
       const unread = isUnreadConversation(user.id, key, activity?.at, activity?.from);
+      const online =
+        onlineUserIds.has(String(u.id)) && (u.privacy?.online || 'everyone') !== 'nobody';
       items.push({
         key,
         type: 'dm',
         id: u.id,
-        title: u.username || 'Unknown user',
+        title: u.displayName || u.username || 'Unknown user',
         subtitle: null,
-        searchText: `${u.username || ''} ${u.email || ''}`.toLowerCase(),
+        searchText: `${u.displayName || ''} ${u.username || ''} ${u.email || ''}`.toLowerCase(),
         lastLoginAt: u.lastLoginAt,
         unread,
         sortAt: activity?.at || u.lastLoginAt || '',
         peer: u,
+        muted: muted.has(String(key)),
+        archived: archived.has(String(key)),
+        online,
       });
     }
 
@@ -723,6 +747,9 @@ export default function Chat() {
         unread,
         sortAt: activity?.at || g.updatedAt || g.createdAt || '',
         group: g,
+        muted: muted.has(String(key)),
+        archived: archived.has(String(key)),
+        online: false,
       });
     }
 
@@ -733,12 +760,17 @@ export default function Chat() {
 
     return items.filter((c) => {
       if (c.type === 'dm' && !q && hidden.has(String(c.id))) return false;
+      if (filter === 'archived') {
+        if (!archived.has(String(c.key))) return false;
+      } else if (archived.has(String(c.key))) {
+        return false;
+      }
       if (filter === 'groups' && c.type !== 'group') return false;
       if (filter === 'unread' && !c.unread) return false;
       if (q && !(c.searchText || '').includes(q)) return false;
       return true;
     });
-  }, [users, groups, user.id, search, filter, activityTick, hiddenChatIds]);
+  }, [users, groups, user.id, search, filter, activityTick, hiddenChatIds, mutedKeys, archivedKeys, onlineUserIds]);
 
   // Update browser tab unread count prefix (must run after conversations is defined)
   useEffect(() => {
@@ -1646,9 +1678,10 @@ export default function Chat() {
       const count = (group?.members || []).length;
       return count ? `${count} members` : 'Group chat';
     }
-    if (onlineUserIds.has(String(selected.id))) return 'online';
-    if (peerTyping) return 'typing…';
     const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    const onlineAllowed = (peer?.privacy?.online || 'everyone') !== 'nobody';
+    if (onlineAllowed && onlineUserIds.has(String(selected.id))) return 'online';
+    if (peerTyping) return 'typing…';
     return formatLastSeen(peer?.lastLoginAt);
   }, [selected, groups, users, onlineUserIds, peerTyping]);
 
@@ -1741,8 +1774,9 @@ export default function Chat() {
 
   const headerOnline = useMemo(() => {
     if (!selected || selected.type !== 'dm') return false;
-    if (onlineUserIds.has(String(selected.id))) return true;
     const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    if ((peer?.privacy?.online || 'everyone') === 'nobody') return false;
+    if (onlineUserIds.has(String(selected.id))) return true;
     return isRecentlyActive(peer?.lastLoginAt);
   }, [selected, users, onlineUserIds]);
 
@@ -1829,6 +1863,10 @@ export default function Chat() {
             onCreateGroup={() => setShowCreateGroup(true)}
             onHide={handleHideChat}
             onBlock={handleBlockUser}
+            onMute={(c) => setMutedKeys(toggleMuteChat(user.id, c.key))}
+            onArchive={(c) => {
+              setArchivedKeys(toggleArchiveChat(user.id, c.key));
+            }}
             loading={loadingUsers}
             searchQuery={search}
           />
@@ -1864,6 +1902,29 @@ export default function Chat() {
 
         {canChat && (
           <>
+            {user && !user.emailVerified && (
+              <div className="email-verify-banner">
+                <span>Verify your email</span>
+                <button
+                  type="button"
+                  className="email-verify-banner-btn"
+                  onClick={async () => {
+                    try {
+                      const { data } = await client.post('/auth/resend-verification');
+                      const verifyUrl = data?.data?.verifyUrl;
+                      showToast(
+                        verifyUrl ? `Verification link: ${verifyUrl}` : 'Verification email sent',
+                        verifyUrl ? 'info' : 'success'
+                      );
+                    } catch (err) {
+                      showToast(err.response?.data?.error || 'Could not resend verification', 'error');
+                    }
+                  }}
+                >
+                  Resend
+                </button>
+              </div>
+            )}
             <header className="chat-header">
               <div className="chat-header-left">
                 <button
@@ -2059,6 +2120,7 @@ export default function Chat() {
                               grouped={isGrouped}
                               starred={starredIds.map(String).includes(mid)}
                               pinned={pinnedIds.map(String).includes(mid)}
+                              showReadReceipts={user.privacy?.readReceipts !== false}
                               senderLabel={
                                 isGroupChat ? usernameById.get(String(m.from)) || 'Member' : undefined
                               }
@@ -2564,6 +2626,33 @@ export default function Chat() {
           onImportKeys={handleImportKeyFile}
           onGenerateKeys={handleGenerateKeys}
           onUserUpdated={updateSessionUser}
+          onLogout={() => {
+            setShowSettings(false);
+            logout();
+          }}
+          onExportChat={() => {
+            if (!selected || !messages.length) {
+              showToast('Open a chat to export', 'info');
+              return;
+            }
+            const lines = visibleMessages
+              .map((m) => {
+                const who =
+                  String(m.from) === String(user.id)
+                    ? 'You'
+                    : usernameById.get(String(m.from)) || 'User';
+                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${
+                  m.text || (m.attachment ? '[attachment]' : '[encrypted]')
+                }`;
+              })
+              .join('\n');
+            const blob = new Blob([lines], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `quantumchat-${selected.title || 'chat'}.txt`;
+            a.click();
+            showToast('Chat exported from this device', 'success');
+          }}
         />
       )}
 

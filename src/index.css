@@ -835,6 +835,63 @@ input:focus-visible,
   transform: translateX(16px);
 }
 
+.settings-modal-wide {
+  width: min(560px, 100%);
+  max-height: min(90vh, 720px);
+}
+
+.settings-ok {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.settings-verify-warn {
+  color: #c45c26;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.conv-muted-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.email-verify-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 14px;
+  font-size: 13px;
+  background: color-mix(in srgb, #c45c26 14%, var(--bg-app));
+  border-bottom: 1px solid color-mix(in srgb, #c45c26 28%, transparent);
+  color: var(--text-primary);
+}
+
+.email-verify-banner-btn {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.email-verify-banner-btn:hover {
+  text-decoration: underline;
+}
+
 .settings-modal {
   width: min(420px, 100%);
   max-height: min(84vh, 640px);
