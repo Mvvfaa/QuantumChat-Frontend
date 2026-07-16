@@ -112,6 +112,7 @@ export default function MessageBubble({
   replyPreview,
   starred,
   pinned,
+  showReadReceipts = true,
   onDelete,
   onDeleteForMe,
   onReact,
@@ -149,10 +150,10 @@ export default function MessageBubble({
   const receiptStatus = useMemo(() => {
     if (!isMine) return null;
     if (message._status === 'sending') return 'sending';
-    if (message.readAt) return 'read';
-    if (message.deliveredAt) return 'delivered';
+    if (message.readAt && showReadReceipts) return 'read';
+    if (message.deliveredAt || message.readAt) return 'delivered';
     return 'sent';
-  }, [isMine, message.readAt, message.deliveredAt, message._status]);
+  }, [isMine, message.readAt, message.deliveredAt, message._status, showReadReceipts]);
 
   const relativeTime = useMemo(() => formatRelativeTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);

@@ -55,7 +55,6 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [forgotPasswordClicked, setForgotPasswordClicked] = useState(false);
 
   useEffect(() => {
     document.title = 'Log in — QuantumChat';
@@ -67,7 +66,6 @@ export default function Login() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
-    setForgotPasswordClicked(false);
 
     if (!form.email.trim()) {
       setError({ text: 'Please enter your email address.', action: null });
@@ -133,13 +131,9 @@ export default function Login() {
           <label className="auth-label" htmlFor="login-password">
             Password
           </label>
-          <button
-            type="button"
-            className="auth-text-btn"
-            onClick={() => setForgotPasswordClicked((v) => !v)}
-          >
+          <Link to="/forgot-password" className="auth-text-btn">
             Forgot password?
-          </button>
+          </Link>
         </div>
         <div className="auth-field">
           <svg className="auth-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -164,16 +158,6 @@ export default function Login() {
             {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         </div>
-
-        {forgotPasswordClicked && (
-          <div className="auth-notice" role="note">
-            <strong>Account recovery</strong>
-            <p>
-              QuantumChat uses end-to-end encryption. Passwords cannot be reset by the server. To read your
-              history on a new device, import your saved <code>keys.txt</code> file after signing in.
-            </p>
-          </div>
-        )}
 
         {error && (
           <div className="auth-error" role="alert" aria-live="polite">
