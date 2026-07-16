@@ -21,6 +21,10 @@ export default function GroupSettingsModal({
   const [onlyAdminsCanAddMembers, setOnlyAdminsCanAddMembers] = useState(
     group?.onlyAdminsCanAddMembers !== false
   );
+  const [quantumAIEnabled, setQuantumAIEnabled] = useState(Boolean(group?.quantumAI?.enabled));
+  const [quantumAIPolicy, setQuantumAIPolicy] = useState(group?.quantumAI?.invocationPolicy || 'members');
+  const [quantumAIContext, setQuantumAIContext] = useState(group?.quantumAI?.maxContextMessages ?? 5);
+  const [quantumAIDailyLimit, setQuantumAIDailyLimit] = useState(group?.quantumAI?.dailyLimit ?? 50);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [addSearch, setAddSearch] = useState('');
@@ -98,6 +102,12 @@ export default function GroupSettingsModal({
         description: description.trim(),
         onlyAdminsCanPost,
         onlyAdminsCanAddMembers,
+        quantumAI: {
+          enabled: quantumAIEnabled,
+          invocationPolicy: quantumAIPolicy,
+          maxContextMessages: Number(quantumAIContext),
+          dailyLimit: Number(quantumAIDailyLimit),
+        },
       });
       await refreshAndClosePayload(data.data);
     } catch (err) {
@@ -326,6 +336,44 @@ export default function GroupSettingsModal({
                     disabled={busy}
                   />
                   Only admins can add members
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={quantumAIEnabled}
+                    onChange={(e) => setQuantumAIEnabled(e.target.checked)}
+                    disabled={busy}
+                  />
+                  Enable @QuantumAI (add QuantumAI as a member first)
+                </label>
+                <label>
+                  Who can invoke QuantumAI
+                  <select value={quantumAIPolicy} onChange={(e) => setQuantumAIPolicy(e.target.value)} disabled={busy}>
+                    <option value="members">All members</option>
+                    <option value="admins">Admins only</option>
+                  </select>
+                </label>
+                <label>
+                  Context messages shared after confirmation
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={quantumAIContext}
+                    onChange={(e) => setQuantumAIContext(e.target.value)}
+                    disabled={busy}
+                  />
+                </label>
+                <label>
+                  Daily QuantumAI request limit
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={quantumAIDailyLimit}
+                    onChange={(e) => setQuantumAIDailyLimit(e.target.value)}
+                    disabled={busy}
+                  />
                 </label>
               </div>
             )}

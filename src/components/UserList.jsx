@@ -56,7 +56,7 @@ export default function UserList({
   return (
     <div className="user-list">
       {users.map((u) => {
-        const online = onlineUsers.has(u.id) || isRecentlyActive(u.lastLoginAt);
+        const online = !u.isSystemUser && (onlineUsers.has(u.id) || isRecentlyActive(u.lastLoginAt));
         const unread = unreadCounts[u.id] || 0;
         const lastMsg = lastMessages[u.id];
 
@@ -82,16 +82,21 @@ export default function UserList({
               {online && <span className="online-dot" />}
             </span>
             <span className="user-list-meta">
-              <span className="user-list-name">{u.username || 'Unknown user'}</span>
+              <span className="user-list-name">
+                {u.username || 'Unknown user'}
+                {u.systemRole === 'quantum_ai' && <span className="verified-ai-badge">AI</span>}
+              </span>
               {lastMsg ? (
                 <span className="user-list-preview">{lastMsg}</span>
               ) : (
-                <span className="user-list-lastseen">{formatShortLastSeen(u.lastLoginAt)}</span>
+                <span className="user-list-lastseen">
+                  {u.systemRole === 'quantum_ai' ? 'AI Assistant' : formatShortLastSeen(u.lastLoginAt)}
+                </span>
               )}
             </span>
             {unread > 0 && <span className="unread-badge">{unread > 99 ? '99+' : unread}</span>}
             <span className="user-list-actions">
-              <button
+              {!u.isSystemUser && <button
                 type="button"
                 className="user-list-action-btn"
                 title="Hide chat"
@@ -105,8 +110,8 @@ export default function UserList({
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
-              </button>
-              <button
+              </button>}
+              {!u.isSystemUser && <button
                 type="button"
                 className="user-list-action-btn danger"
                 title="Block user"
@@ -120,7 +125,7 @@ export default function UserList({
                   <circle cx="12" cy="12" r="10" />
                   <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
                 </svg>
-              </button>
+              </button>}
             </span>
           </div>
         );

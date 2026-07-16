@@ -306,12 +306,25 @@ export default function MessageBubble({
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
           <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}`}>
-            {senderLabel && !isMine && !grouped && <div className="message-sender-label">{senderLabel}</div>}
+            {senderLabel && !isMine && !grouped && (
+              <div className="message-sender-label">
+                {senderLabel}
+                {message.kind === 'ai' && <span className="verified-ai-badge">AI</span>}
+              </div>
+            )}
+            {message.kind === 'ai' && !senderLabel && (
+              <div className="message-sender-label">
+                QuantumAI <span className="verified-ai-badge">AI</span>
+              </div>
+            )}
             {(pinned || starred) && (
               <div className="message-flags">
                 {pinned && <span title="Pinned"><Pin size={12} /></span>}
                 {starred && <span title="Starred"><Star size={12} /></span>}
               </div>
+            )}
+            {message.kind === 'ai_note' && (
+              <div className="message-forwarded-label">Encrypted QuantumAI note</div>
             )}
             {message.forwardedFrom?.username && (
               <div className="message-forwarded-label">Forwarded from {message.forwardedFrom.username}</div>

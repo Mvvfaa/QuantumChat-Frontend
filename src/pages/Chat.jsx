@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import client from '../api/client.js';
+import { streamQuantumAI } from '../api/aiClient.js';
 import { connectSocket, getSocket } from '../api/socket.js';
 import { sealMessage, unsealMessage, sealBytes, secretboxSeal, pickRandom } from '../crypto/keys.js';
 import { formatKeyFile, downloadKeyFile, parseKeyFile } from '../crypto/keyFile.js';
@@ -60,6 +61,7 @@ import TypingIndicator from '../components/TypingIndicator.jsx';
 import ForwardModal from '../components/ForwardModal.jsx';
 import CameraCapture from '../components/CameraCapture.jsx';
 import ImageLightbox from '../components/ImageLightbox.jsx';
+import AIAssistantPanel from '../components/AIAssistantPanel.jsx';
 import { useToast } from '../components/ToastProvider.jsx';
 import { getHiddenChatIds, hideChat, unhideChat } from '../utils/hiddenChats.js';
 import {
@@ -171,6 +173,8 @@ export default function Chat() {
   const [mentionQuery, setMentionQuery] = useState('');
   const [mentionOpen, setMentionOpen] = useState(false);
   const [pendingAnnouncement, setPendingAnnouncement] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const messageListRef = useRef(null);
   const bottomRef = useRef(null);
@@ -190,6 +194,7 @@ export default function Chat() {
   const dragCountRef = useRef(0);
   const typingTimeoutRef = useRef(null);
   const imageSrcMapRef = useRef(new Map());
+  const aiAbortRef = useRef(null);
   selectedRef.current = selected;
 
   const bumpActivity = useCallback(() => setActivityTick((n) => n + 1), []);
@@ -862,6 +867,30 @@ export default function Chat() {
     return data.data;
   }
 
+  async function saveEncryptedAINote(text) {
+    if (!selected || !text?.trim()) return;
+    try {
+      if (selected.type === 'group') {
+        await sendGroupPayload(text, { kind: 'ai_note' });
+      } else {
+        const peer = selected.peer || users.find((candidate) => String(candidate.id) === String(selected.id));
+        const myKey = pickRandom(getCurrentKeySet(user.id));
+        const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+        if (!myKey?.publicKey || !recipientKeys.length) throw new Error('Missing encryption keys');
+        const { data } = await client.post('/messages', {
+          to: selected.id,
+          forRecipient: sealMessage(text, pickRandom(recipientKeys)),
+          forSender: sealMessage(text, myKey.publicKey),
+          kind: 'ai_note',
+        });
+        setMessages((current) => [...current, decorate(data.data)]);
+      }
+      showToast('Encrypted AI note saved', 'success');
+    } catch (err) {
+      showToast(err.response?.data?.error || err.message || 'Could not save AI note', 'error');
+    }
+  }
+
   function handleHideChat(u) {
     const peerId = String(u.id);
     setHiddenChatIds(hideChat(user.id, peerId));
@@ -945,7 +974,7 @@ export default function Chat() {
       setMentionQuery('');
     }
 
-    if (!selected || selected.type !== 'dm') return;
+    if (!selected || selected.type !== 'dm' || selected.peer?.isSystemUser) return;
     const socket = getSocket();
     if (!socket) return;
 
@@ -976,15 +1005,167 @@ export default function Chat() {
     }
   }
 
+  async function sendPrivateQuantumAIMessage(text) {
+    const peer = selected.peer || users.find((candidate) => String(candidate.id) === String(selected.id));
+    const myKeys = getCurrentKeySet(user.id);
+    const myKey = pickRandom(myKeys);
+    const quantumAIKey = pickRandom((peer?.publicKeys || []).filter(Boolean));
+    if (!myKey?.publicKey || !quantumAIKey) throw new Error('Missing QuantumAI encryption keys');
+
+    const { data: storedPrompt } = await client.post('/messages', {
+      to: selected.id,
+      forRecipient: sealMessage(text, quantumAIKey),
+      forSender: sealMessage(text, myKey.publicKey),
+    });
+    setMessages((current) => [...current, decorate(storedPrompt.data)]);
+
+    const assistantMessageId = `quantum-ai-assistant-${Date.now()}`;
+    setMessages((current) => [
+      ...current,
+      {
+        id: assistantMessageId,
+        from: selected.id,
+        to: user.id,
+        text: '',
+        createdAt: new Date().toISOString(),
+        quantumAI: true,
+      },
+    ]);
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    setAiBusy(true);
+    try {
+      let finalPayload;
+      const recentContext = messages
+        .filter((message) => message.text)
+        .slice(-20)
+        .map((message) => `${String(message.from) === String(user.id) ? 'User' : 'QuantumAI'}: ${message.text}`);
+      const approvedContext =
+        recentContext.length &&
+        window.confirm(
+          `Privacy preview\n\nSend ${recentContext.length} decrypted messages from your QuantumAI thread as context?`
+        )
+          ? recentContext
+          : [];
+      await streamQuantumAI({
+        message: text,
+        context: approvedContext,
+        link: { quantumChatPeerId: user.id },
+        ephemeral: true,
+        signal: controller.signal,
+        onChunk: (chunk) =>
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantMessageId
+                ? { ...message, text: `${message.text || ''}${chunk}` }
+                : message
+            )
+          ),
+        onDone: (payload) => {
+          finalPayload = payload;
+        },
+      });
+      if (!finalPayload?.content || !finalPayload.receipt || !finalPayload.requestId) {
+        throw new Error('QuantumAI did not return a signed response');
+      }
+      const { data: storedAnswer } = await client.post('/messages/quantum-ai-response', {
+        content: finalPayload.content,
+        contentHash: finalPayload.contentHash,
+        requestId: finalPayload.requestId,
+        receipt: finalPayload.receipt,
+        model: finalPayload.model,
+      });
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId ? decorate(storedAnswer.data) : message
+        )
+      );
+    } finally {
+      setAiBusy(false);
+      aiAbortRef.current = null;
+    }
+  }
+
+  async function invokeGroupQuantumAI(prompt, group) {
+    const quantumAI = (group.members || []).find((member) => member.systemRole === 'quantum_ai');
+    if (!group.quantumAI?.enabled || !quantumAI) {
+      showToast('A group admin must add and enable QuantumAI first', 'error');
+      return;
+    }
+    const maxContext = Math.min(group.quantumAI.maxContextMessages ?? 5, 20);
+    const context = messages
+      .filter((message) => message.text && message.kind !== 'ai')
+      .slice(-maxContext)
+      .map((message) => message.text);
+    const approved = window.confirm(
+      `Privacy preview\n\nQuantumAI will receive your mention plus ${context.length} decrypted recent message(s). Continue?`
+    );
+    if (!approved) return;
+
+    setAiBusy(true);
+    let finalPayload;
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    try {
+      await streamQuantumAI({
+        message: prompt.replace(/@QuantumAI\b/gi, '').trim() || 'Help with this conversation.',
+        context,
+        link: { groupId: selected.id },
+        ephemeral: true,
+        signal: controller.signal,
+        onDone: (payload) => {
+          finalPayload = payload;
+        },
+      });
+      if (
+        !finalPayload?.content ||
+        !finalPayload.receipt ||
+        !finalPayload.contentHash ||
+        !finalPayload.requestId
+      ) {
+        throw new Error('QuantumAI did not return a signed group response');
+      }
+      const { data } = await client.post(`/groups/${selected.id}/quantum-ai-response`, {
+        content: finalPayload.content,
+        contentHash: finalPayload.contentHash,
+        requestId: finalPayload.requestId,
+        receipt: finalPayload.receipt,
+        model: finalPayload.model,
+      });
+      setMessages((current) => {
+        const id = String(data.data.id || data.data._id);
+        return current.some((message) => String(message.id || message._id) === id)
+          ? current
+          : [...current, decorate(data.data)];
+      });
+    } finally {
+      setAiBusy(false);
+      aiAbortRef.current = null;
+    }
+  }
+
   async function handleSend(e) {
     e.preventDefault();
     if (!draft.trim() || !selected) return;
+    if (aiBusy && (selected.peer?.systemRole === 'quantum_ai' || /@QuantumAI\b/i.test(draft))) {
+      showToast('QuantumAI is already responding', 'error');
+      return;
+    }
 
     const socket = getSocket();
     if (socket && selected.type === 'dm') socket.emit('typing:stop', { to: selected.id });
     clearTimeout(typingTimeoutRef.current);
 
     try {
+      if (selected.type === 'dm' && selected.peer?.systemRole === 'quantum_ai') {
+        const prompt = draft.trim();
+        setDraft('');
+        await sendPrivateQuantumAIMessage(prompt);
+        playSendSound();
+        setTimeout(() => scrollToBottom('smooth'), 50);
+        return;
+      }
+
       if (editingMessage) {
         if (selected.type === 'group') {
           const group = selected.group || groups.find((g) => String(g.id) === String(selected.id));
@@ -1042,6 +1223,9 @@ export default function Chat() {
           kind: asAnnouncement ? 'announcement' : 'text',
           mentionedUserIds,
         });
+        if (!asAnnouncement && /(^|\s)@QuantumAI\b/i.test(bodyText)) {
+          await invokeGroupQuantumAI(bodyText, group);
+        }
         setPendingAnnouncement(false);
       } else {
         const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
@@ -1679,11 +1863,12 @@ export default function Chat() {
       return count ? `${count} members` : 'Group chat';
     }
     const peer = selected.peer || users.find((u) => String(u.id) === String(selected.id));
+    if (peer?.systemRole === 'quantum_ai') return aiBusy ? 'generating…' : 'AI Assistant';
     const onlineAllowed = (peer?.privacy?.online || 'everyone') !== 'nobody';
     if (onlineAllowed && onlineUserIds.has(String(selected.id))) return 'online';
     if (peerTyping) return 'typing…';
     return formatLastSeen(peer?.lastLoginAt);
-  }, [selected, groups, users, onlineUserIds, peerTyping]);
+  }, [selected, groups, users, onlineUserIds, peerTyping, aiBusy]);
 
   const activeGroup = useMemo(() => {
     if (!selected || selected.type !== 'group') return null;
@@ -1976,6 +2161,27 @@ export default function Chat() {
                 )}
               </div>
               <div className="chat-header-actions">
+                {aiBusy && (
+                  <button
+                    className="chat-header-btn"
+                    type="button"
+                    onClick={() => aiAbortRef.current?.abort()}
+                    title="Stop QuantumAI"
+                  >
+                    <Square size={17} />
+                    <span>Stop AI</span>
+                  </button>
+                )}
+                <button
+                  className="chat-header-btn quantum-ai-toggle"
+                  type="button"
+                  onClick={() => setAiPanelOpen((open) => !open)}
+                  title="Open QuantumAI"
+                  aria-label="Open QuantumAI"
+                >
+                  <MessageSquare size={18} />
+                  <span>QuantumAI</span>
+                </button>
                 {selected?.type === 'group' && (
                   <button
                     className="chat-header-btn"
@@ -2465,6 +2671,20 @@ export default function Chat() {
           </>
         )}
       </main>
+
+      {aiPanelOpen && (
+        <AIAssistantPanel
+          conversation={selected}
+          messages={messages}
+          onClose={() => setAiPanelOpen(false)}
+          onInsertDraft={(text) => {
+            setDraft(text);
+            setAiPanelOpen(false);
+            textareaRef.current?.focus();
+          }}
+          onSaveEncryptedNote={saveEncryptedAINote}
+        />
+      )}
 
       <ConfirmDialog
         open={Boolean(confirmDialog)}
