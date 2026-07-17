@@ -17,6 +17,14 @@ function ToggleRow({ label, hint, checked, onChange, disabled }) {
   );
 }
 
+const TABS = [
+  ['profile', 'Profile'],
+  ['privacy', 'Privacy'],
+  ['security', 'Security'],
+  ['blocked', 'Blocked'],
+  ['data', 'Data'],
+];
+
 export default function SettingsModal({
   user,
   onClose,
@@ -52,6 +60,7 @@ export default function SettingsModal({
   const [deletePassword, setDeletePassword] = useState('');
 
   const isDark = theme === 'dark';
+  const shownName = user?.displayName || user?.username || 'You';
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -219,7 +228,11 @@ export default function SettingsModal({
       setError('Enter your password to delete the account');
       return;
     }
-    if (!window.confirm('Permanently delete your account? Encrypted message history on the server will be removed. Local keys on this device should be backed up first.')) {
+    if (
+      !window.confirm(
+        'Permanently delete your account? Encrypted message history on the server will be removed. Local keys on this device should be backed up first.'
+      )
+    ) {
       return;
     }
     setBusy(true);
@@ -242,28 +255,23 @@ export default function SettingsModal({
         aria-labelledby="settings-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="create-group-modal-header">
-          <div className="create-group-modal-heading">
+        <div className="settings-modal-header">
+          <div className="settings-modal-heading">
             <h2 id="settings-title">Settings</h2>
             <p>Profile, privacy, security, and data</p>
           </div>
-          <button ref={closeRef} type="button" className="create-group-close" onClick={onClose} aria-label="Close settings">
+          <button ref={closeRef} type="button" className="settings-close" onClick={onClose} aria-label="Close settings">
             ✕
           </button>
         </div>
 
-        <div className="group-settings-tabs settings-tabs">
-          {[
-            ['profile', 'Profile'],
-            ['privacy', 'Privacy'],
-            ['security', 'Security'],
-            ['blocked', 'Blocked'],
-            ['data', 'Data'],
-          ].map(([id, label]) => (
+        <nav className="settings-tabs" aria-label="Settings sections">
+          {TABS.map(([id, label]) => (
             <button
               key={id}
               type="button"
-              className={`group-settings-tab ${tab === id ? 'active' : ''}`}
+              className={`settings-tab ${tab === id ? 'active' : ''}`}
+              aria-current={tab === id ? 'page' : undefined}
               onClick={() => {
                 setTab(id);
                 setError('');
@@ -273,177 +281,247 @@ export default function SettingsModal({
               {label}
             </button>
           ))}
-        </div>
+        </nav>
 
-        {error && <div className="auth-error">{error}</div>}
-        {ok && <div className="settings-ok">{ok}</div>}
+        <div className="settings-body">
+          {error && <div className="auth-error">{error}</div>}
+          {ok && <div className="settings-ok">{ok}</div>}
 
-        {tab === 'profile' && (
-          <section className="settings-section">
-            <div className="settings-account">
-              <UserAvatar userId={user?.id} name={user?.displayName || user?.username} hasAvatar={user?.hasAvatar} />
-              <div className="settings-account-meta">
-                <span className="settings-account-name">{user?.displayName || user?.username}</span>
-                <span className="settings-account-email">{user?.email}</span>
-                {!user?.emailVerified && <span className="settings-verify-warn">Email not verified</span>}
+          {tab === 'profile' && (
+            <section className="settings-section">
+              <div className="settings-identity">
+                <div className="settings-avatar-stack">
+                  <UserAvatar
+                    userId={user?.id}
+                    name={shownName}
+                    hasAvatar={user?.hasAvatar}
+                    size="lg"
+                  />
+                  <button
+                    type="button"
+                    className="settings-avatar-edit"
+                    disabled={avatarBusy}
+                    onClick={() => avatarInputRef.current?.click()}
+                    aria-label="Change profile photo"
+                  >
+                    {avatarBusy ? '…' : '✎'}
+                  </button>
+                  <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={handleAvatarChange} />
+                </div>
+                <div className="settings-account-meta">
+                  <span className="settings-account-name">{shownName}</span>
+                  <span className="settings-account-email">{user?.email}</span>
+                  <div className="settings-status-row">
+                    {user?.emailVerified ? (
+                      <span className="settings-badge settings-badge-ok">Verified</span>
+                    ) : (
+                      <span className="settings-badge settings-badge-warn">Unverified email</span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="settings-inline-actions">
-              <button type="button" className="confirm-btn cancel" disabled={avatarBusy} onClick={() => avatarInputRef.current?.click()}>
-                {avatarBusy ? 'Uploading…' : 'Change photo'}
-              </button>
-              {user?.hasAvatar && (
-                <button type="button" className="confirm-btn cancel" disabled={busy} onClick={removeAvatar}>
-                  Remove photo
+
+              <div className="settings-photo-actions">
+                <button
+                  type="button"
+                  className="settings-btn ghost"
+                  disabled={avatarBusy}
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  {avatarBusy ? 'Uploading…' : 'Change photo'}
                 </button>
+                {user?.hasAvatar && (
+                  <button type="button" className="settings-btn ghost" disabled={busy} onClick={removeAvatar}>
+                    Remove
+                  </button>
+                )}
+              </div>
+
+              {!user?.emailVerified && (
+                <div className="settings-verify-banner">
+                  <div>
+                    <strong>Confirm your email</strong>
+                    <p>Verify to unlock full account recovery and security alerts.</p>
+                  </div>
+                  <button type="button" className="settings-btn text" disabled={busy} onClick={resendVerification}>
+                    Resend link
+                  </button>
+                </div>
               )}
-              <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={handleAvatarChange} />
-            </div>
-            {!user?.emailVerified && (
-              <button type="button" className="confirm-btn cancel" disabled={busy} onClick={resendVerification}>
-                Resend email verification
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">About you</h3>
+                <label className="settings-field">
+                  <span>Username</span>
+                  <input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} autoComplete="username" />
+                </label>
+                <label className="settings-field">
+                  <span>Display name</span>
+                  <input
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    maxLength={60}
+                    placeholder="Shown to others"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>Bio</span>
+                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} placeholder="A short line about you" />
+                </label>
+                <label className="settings-field">
+                  <span>Phone</span>
+                  <input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    maxLength={32}
+                    placeholder="Private to you"
+                    inputMode="tel"
+                  />
+                </label>
+              </div>
+
+              <button type="button" className="settings-btn primary" disabled={busy} onClick={saveProfile}>
+                {busy ? 'Saving…' : 'Save profile'}
               </button>
-            )}
 
-            <label className="create-group-label">Username</label>
-            <input className="create-group-input" value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} />
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Appearance</h3>
+                <ToggleRow label="Dark theme" hint={isDark ? 'On' : 'Off'} checked={isDark} onChange={toggleTheme} />
+              </div>
+            </section>
+          )}
 
-            <label className="create-group-label">Display name</label>
-            <input className="create-group-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={60} placeholder="Shown to others" />
-
-            <label className="create-group-label">Bio / About</label>
-            <textarea className="create-group-input group-desc-input" value={bio} onChange={(e) => setBio(e.target.value)} maxLength={300} rows={3} />
-
-            <label className="create-group-label">Phone</label>
-            <input className="create-group-input" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={32} placeholder="Private to you" />
-
-            <button type="button" className="confirm-btn" disabled={busy} onClick={saveProfile}>
-              Save profile
-            </button>
-
-            <h3 className="settings-section-title">Appearance</h3>
-            <ToggleRow label="Dark theme" hint={isDark ? 'On' : 'Off'} checked={isDark} onChange={toggleTheme} />
-          </section>
-        )}
-
-        {tab === 'privacy' && (
-          <section className="settings-section">
-            <p className="settings-section-copy">These control what others see. Encryption keys stay on this device.</p>
-            <ToggleRow
-              label="Show last seen"
-              hint={privacy.lastSeen === 'everyone' ? 'Everyone' : 'Nobody'}
-              checked={privacy.lastSeen === 'everyone'}
-              onChange={(on) => setPrivacy((p) => ({ ...p, lastSeen: on ? 'everyone' : 'nobody' }))}
-            />
-            <ToggleRow
-              label="Show online status"
-              hint={privacy.online === 'everyone' ? 'Everyone' : 'Hidden'}
-              checked={privacy.online === 'everyone'}
-              onChange={(on) => setPrivacy((p) => ({ ...p, online: on ? 'everyone' : 'nobody' }))}
-            />
-            <ToggleRow
-              label="Read receipts"
-              hint={privacy.readReceipts ? 'Send & see read ticks' : 'Off'}
-              checked={privacy.readReceipts}
-              onChange={(on) => setPrivacy((p) => ({ ...p, readReceipts: on }))}
-            />
-            <button type="button" className="confirm-btn" disabled={busy} onClick={savePrivacy}>
-              Save privacy
-            </button>
-          </section>
-        )}
-
-        {tab === 'security' && (
-          <section className="settings-section">
-            <h3 className="settings-section-title">Change password</h3>
-            <input
-              className="create-group-input"
-              type="password"
-              placeholder="Current password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-            <input
-              className="create-group-input"
-              type="password"
-              placeholder="New password (min 8)"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-            <button
-              type="button"
-              className="confirm-btn"
-              disabled={busy || !currentPassword || newPassword.length < 8}
-              onClick={changePassword}
-            >
-              Update password
-            </button>
-
-            <h3 className="settings-section-title">Encryption keys</h3>
-            <p className="settings-section-copy">
-              Keys stay on this device. Import a backup to recover old messages, or generate a new set if keys are gone.
-            </p>
-            <div className="settings-key-actions">
-              <button type="button" className="confirm-btn cancel" onClick={() => keyInputRef.current?.click()}>
-                Import keys.txt
+          {tab === 'privacy' && (
+            <section className="settings-section">
+              <p className="settings-section-copy">These control what others see. Encryption keys stay on this device.</p>
+              <ToggleRow
+                label="Show last seen"
+                hint={privacy.lastSeen === 'everyone' ? 'Everyone' : 'Nobody'}
+                checked={privacy.lastSeen === 'everyone'}
+                onChange={(on) => setPrivacy((p) => ({ ...p, lastSeen: on ? 'everyone' : 'nobody' }))}
+              />
+              <ToggleRow
+                label="Show online status"
+                hint={privacy.online === 'everyone' ? 'Everyone' : 'Hidden'}
+                checked={privacy.online === 'everyone'}
+                onChange={(on) => setPrivacy((p) => ({ ...p, online: on ? 'everyone' : 'nobody' }))}
+              />
+              <ToggleRow
+                label="Read receipts"
+                hint={privacy.readReceipts ? 'Send & see read ticks' : 'Off'}
+                checked={privacy.readReceipts}
+                onChange={(on) => setPrivacy((p) => ({ ...p, readReceipts: on }))}
+              />
+              <button type="button" className="settings-btn primary" disabled={busy} onClick={savePrivacy}>
+                Save privacy
               </button>
-              <input ref={keyInputRef} type="file" accept=".txt" hidden onChange={onImportKeys} />
-              <button type="button" className="confirm-btn primary" onClick={onGenerateKeys}>
-                Generate new keys
+            </section>
+          )}
+
+          {tab === 'security' && (
+            <section className="settings-section">
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Change password</h3>
+                <label className="settings-field">
+                  <span>Current password</span>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </label>
+                <label className="settings-field">
+                  <span>New password</span>
+                  <input
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="settings-btn primary"
+                  disabled={busy || !currentPassword || newPassword.length < 8}
+                  onClick={changePassword}
+                >
+                  Update password
+                </button>
+              </div>
+
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Encryption keys</h3>
+                <p className="settings-section-copy">
+                  Keys stay on this device. Import a backup to recover old messages, or generate a new set if keys are gone.
+                </p>
+                <div className="settings-key-actions">
+                  <button type="button" className="settings-btn ghost" onClick={() => keyInputRef.current?.click()}>
+                    Import keys.txt
+                  </button>
+                  <input ref={keyInputRef} type="file" accept=".txt" hidden onChange={onImportKeys} />
+                  <button type="button" className="settings-btn primary" onClick={onGenerateKeys}>
+                    Generate new keys
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {tab === 'blocked' && (
+            <section className="settings-section">
+              {blocked.length === 0 ? (
+                <p className="settings-section-copy">No blocked users.</p>
+              ) : (
+                <ul className="group-member-list">
+                  {blocked.map((u) => (
+                    <li key={u.id}>
+                      <div>
+                        <strong>{u.displayName || u.username}</strong>
+                        <span className="group-member-meta">@{u.username}</span>
+                      </div>
+                      <button type="button" className="settings-btn ghost" disabled={busy} onClick={() => unblock(u.id)}>
+                        Unblock
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
+          {tab === 'data' && (
+            <section className="settings-section">
+              <p className="settings-section-copy">
+                Download account metadata, or export the open conversation decrypted on this device.
+              </p>
+              <button type="button" className="settings-btn ghost" disabled={busy} onClick={downloadData}>
+                Download my data (JSON)
               </button>
-            </div>
-          </section>
-        )}
+              <button type="button" className="settings-btn ghost" disabled={busy || !onExportChat} onClick={() => onExportChat?.()}>
+                Export current chat
+              </button>
 
-        {tab === 'blocked' && (
-          <section className="settings-section">
-            {blocked.length === 0 ? (
-              <p className="settings-section-copy">No blocked users.</p>
-            ) : (
-              <ul className="group-member-list">
-                {blocked.map((u) => (
-                  <li key={u.id}>
-                    <div>
-                      <strong>{u.displayName || u.username}</strong>
-                      <span className="group-member-meta">@{u.username}</span>
-                    </div>
-                    <button type="button" className="confirm-btn cancel" disabled={busy} onClick={() => unblock(u.id)}>
-                      Unblock
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
-
-        {tab === 'data' && (
-          <section className="settings-section">
-            <p className="settings-section-copy">
-              Download account metadata, or export the open conversation decrypted on this device.
-            </p>
-            <button type="button" className="confirm-btn cancel" disabled={busy} onClick={downloadData}>
-              Download my data (JSON)
-            </button>
-            <button type="button" className="confirm-btn cancel" disabled={busy || !onExportChat} onClick={() => onExportChat?.()}>
-              Export current chat
-            </button>
-
-            <h3 className="settings-section-title">Danger zone</h3>
-            <input
-              className="create-group-input"
-              type="password"
-              placeholder="Password to confirm delete"
-              value={deletePassword}
-              onChange={(e) => setDeletePassword(e.target.value)}
-            />
-            <button type="button" className="btn-danger" disabled={busy} onClick={deleteAccount}>
-              Delete account
-            </button>
-          </section>
-        )}
+              <div className="settings-danger-zone">
+                <h3 className="settings-section-title">Danger zone</h3>
+                <p className="settings-section-copy">This permanently removes your account from the server.</p>
+                <label className="settings-field">
+                  <span>Password to confirm</span>
+                  <input
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </label>
+                <button type="button" className="settings-btn danger" disabled={busy} onClick={deleteAccount}>
+                  Delete account
+                </button>
+              </div>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );
