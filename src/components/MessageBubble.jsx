@@ -13,7 +13,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import AttachmentBubble from './AttachmentBubble.jsx';
+import GroupMessageContent from './GroupMessageContent.jsx';
 import { QUICK_REACTIONS } from '../utils/emojis.js';
+import { parseGroupPayload } from '../utils/groupPayload.js';
 
 const MENU_GAP = 8;
 const VIEW_PAD = 12;
@@ -110,6 +112,7 @@ export default function MessageBubble({
   replyPreview,
   starred,
   pinned,
+  showReadReceipts = true,
   onDelete,
   onDeleteForMe,
   onReact,
@@ -122,6 +125,7 @@ export default function MessageBubble({
   onJumpToReply,
   onImagePreview,
   onImageReady,
+  onVotePoll,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
@@ -138,20 +142,21 @@ export default function MessageBubble({
   const anyPopover = menuOpen || reactOpen;
 
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
+  const structured = useMemo(() => parseGroupPayload(message.text), [message.text]);
+  const isStructured = Boolean(message.group) && structured.type && structured.type !== 'text';
+  const hasTextContent = !isStructured && message.text && message.text.length > 0;
+  const isDecryptionFail = message.text === null;
 
   const receiptStatus = useMemo(() => {
     if (!isMine) return null;
     if (message._status === 'sending') return 'sending';
-    if (message.readAt) return 'read';
-    if (message.deliveredAt) return 'delivered';
+    if (message.readAt && showReadReceipts) return 'read';
+    if (message.deliveredAt || message.readAt) return 'delivered';
     return 'sent';
-  }, [isMine, message.readAt, message.deliveredAt, message._status]);
+  }, [isMine, message.readAt, message.deliveredAt, message._status, showReadReceipts]);
 
   const relativeTime = useMemo(() => formatRelativeTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
-
-  const hasTextContent = message.text && message.text.length > 0;
-  const isDecryptionFail = message.text === null;
 
   function closeAll() {
     setMenuOpen(false);
@@ -246,7 +251,7 @@ export default function MessageBubble({
                 <span>{pinned ? 'Unpin' : 'Pin'}</span>
               </button>
             )}
-            {isMine && onEdit && !message.attachment && (
+            {isMine && onEdit && !message.attachment && !isStructured && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onEdit(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pencil size={16} strokeWidth={2} /></span>
                 <span>Edit</span>
@@ -301,12 +306,25 @@ export default function MessageBubble({
       >
         <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
           <div className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}`}>
-            {senderLabel && !isMine && !grouped && <div className="message-sender-label">{senderLabel}</div>}
+            {senderLabel && !isMine && !grouped && (
+              <div className="message-sender-label">
+                {senderLabel}
+                {message.kind === 'ai' && <span className="verified-ai-badge">AI</span>}
+              </div>
+            )}
+            {message.kind === 'ai' && !senderLabel && (
+              <div className="message-sender-label">
+                QuantumAI <span className="verified-ai-badge">AI</span>
+              </div>
+            )}
             {(pinned || starred) && (
               <div className="message-flags">
                 {pinned && <span title="Pinned"><Pin size={12} /></span>}
                 {starred && <span title="Starred"><Star size={12} /></span>}
               </div>
+            )}
+            {message.kind === 'ai_note' && (
+              <div className="message-forwarded-label">Encrypted QuantumAI note</div>
             )}
             {message.forwardedFrom?.username && (
               <div className="message-forwarded-label">Forwarded from {message.forwardedFrom.username}</div>
@@ -322,7 +340,7 @@ export default function MessageBubble({
                 <span className="message-reply-text">{replyPreview.text}</span>
               </button>
             )}
-            {message.attachment && (
+            {message.attachment && structured.type !== 'file' && (
               <AttachmentBubble
                 attachment={message.attachment}
                 isMine={isMine}
@@ -331,7 +349,23 @@ export default function MessageBubble({
                 onImageReady={onImageReady}
               />
             )}
-            {hasTextContent ? message.text : isDecryptionFail ? <em>[Unable to decrypt message]</em> : null}
+            {message.group && message.text != null ? (
+              <GroupMessageContent
+                message={message}
+                payload={structured}
+                currentUserId={currentUserId}
+                onVotePoll={onVotePoll}
+                resolveSecretKey={keyResolver}
+                attachment={message.attachment}
+                isMine={isMine}
+                onImagePreview={onImagePreview}
+                onImageReady={onImageReady}
+              />
+            ) : hasTextContent ? (
+              message.text
+            ) : isDecryptionFail ? (
+              <em>[Unable to decrypt message]</em>
+            ) : null}
             <div className="message-time" title={fullTime}>
               {relativeTime}
               {message.editedAt ? <span className="message-edited"> · edited</span> : null}
