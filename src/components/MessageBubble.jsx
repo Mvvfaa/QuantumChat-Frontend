@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
-import { QUICK_REACTIONS } from '../utils/emojis.js';
+import { COMPOSER_EMOJIS, QUICK_REACTIONS, searchEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
 
 const MENU_GAP = 8;
@@ -130,6 +130,8 @@ export default function MessageBubble({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
+  const [reactSearchOpen, setReactSearchOpen] = useState(false);
+  const [reactQuery, setReactQuery] = useState('');
   const [coords, setCoords] = useState({ top: 0, left: 0, placement: 'below', ready: false });
 
   const rootRef = useRef(null);
@@ -141,6 +143,10 @@ export default function MessageBubble({
   const reactionGroups = groupReactions(message.reactions);
   const myReaction = (message.reactions || []).find((r) => String(r.user) === String(currentUserId))?.emoji;
   const anyPopover = menuOpen || reactOpen;
+  const reactionSearchResults = useMemo(
+    () => (reactQuery.trim() ? searchEmojis(reactQuery, 96) : COMPOSER_EMOJIS.slice(0, 96)),
+    [reactQuery]
+  );
 
   const keyResolver = resolveSecretKey || resolveAttachmentKey;
   const structured = useMemo(() => parseGroupPayload(message.text), [message.text]);
@@ -162,6 +168,8 @@ export default function MessageBubble({
   function closeAll() {
     setMenuOpen(false);
     setReactOpen(false);
+    setReactSearchOpen(false);
+    setReactQuery('');
     setCoords((prev) => ({ ...prev, ready: false }));
   }
 
@@ -296,6 +304,44 @@ export default function MessageBubble({
                 {emoji}
               </button>
             ))}
+            <button
+              type="button"
+              className={`reaction-search-toggle ${reactSearchOpen ? 'active' : ''}`}
+              aria-label="Search more emojis"
+              title="Search more emojis"
+              onClick={() => setReactSearchOpen((v) => !v)}
+            >
+              +
+            </button>
+
+            {reactSearchOpen && (
+              <div className="reaction-search-panel" aria-label="Search emojis">
+                <input
+                  type="text"
+                  className="reaction-search-input"
+                  placeholder="Search emoji (heart, laugh, fire)"
+                  value={reactQuery}
+                  onChange={(e) => setReactQuery(e.target.value)}
+                  autoFocus
+                />
+                <div className="reaction-search-grid" aria-label="Emoji search results">
+                  {reactionSearchResults.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      aria-selected={myReaction === emoji}
+                      className={myReaction === emoji ? 'active' : ''}
+                      onClick={() => {
+                        closeAll();
+                        onReact(messageId, emoji);
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>,
@@ -398,6 +444,8 @@ export default function MessageBubble({
                 onClick={() => {
                   anchorRef.current = reactBtnRef.current;
                   setReactOpen((v) => !v);
+                  setReactSearchOpen(false);
+                  setReactQuery('');
                   setMenuOpen(false);
                 }}
               >
