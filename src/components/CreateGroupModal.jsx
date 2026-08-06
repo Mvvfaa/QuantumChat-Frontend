@@ -145,6 +145,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
           </div>
         </fieldset>
 
+        <div className="create-group-scroll-container">
         <div className="create-group-body">
         <div className="create-group-field">
           <label className="create-group-label" htmlFor="group-name">
@@ -250,6 +251,7 @@ export default function CreateGroupModal({ users, onClose, onCreate }) {
         </div>
 
         {error && <div className="auth-error create-group-error">{error}</div>}
+        </div>
         </div>
 
         <div className="create-group-actions">

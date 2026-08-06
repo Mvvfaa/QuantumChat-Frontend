@@ -2439,10 +2439,9 @@ input:focus-visible,
   flex-shrink: 0;
 }
 
-.create-group-body {
+.create-group-scroll-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   flex: 1 1 0;
   min-height: 0;
   overflow-x: hidden;
@@ -2450,6 +2449,12 @@ input:focus-visible,
   padding-right: 4px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+.create-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .create-group-type-switcher {
