@@ -63,4 +63,15 @@ export async function clearChat(payload) {
   const { data } = await client.post('/users/me/clear-chat', payload);
   return data;
 }
+
+export async function getMyReferrals() {
+  const { data } = await client.get('/users/me/referrals');
+  return data;
+}
+
+export async function getReferralPreview(code) {
+  const { data } = await client.get(`/auth/referral-preview/${encodeURIComponent(code)}`);
+  return data;
+}
+
 export default client;
