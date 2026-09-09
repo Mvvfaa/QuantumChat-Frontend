@@ -1,7 +1,7 @@
 import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import client, { unmuteChat, updatePrivacySettings } from '../api/client.js';
+import client, { getMyReferrals, unmuteChat, updatePrivacySettings } from '../api/client.js';
 import {
   approveDeviceLink,
   buildQrPayload,
@@ -232,22 +232,22 @@ export default function SettingsModal({
   const shownName = user?.displayName || user?.username || 'You';
   const currentSessionId = getSessionId();
   const [verifyLinkUrl, setVerifyLinkUrl] = useState('');
-const onCloseRef = useRef(onClose);
-useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
-useEffect(() => {
-  const prev = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
-  closeRef.current?.focus();
-  function onKeyDown(e) {
-    if (e.key === 'Escape') onCloseRef.current?.();
-  }
-  window.addEventListener('keydown', onKeyDown);
-  return () => {
-    document.body.style.overflow = prev;
-    window.removeEventListener('keydown', onKeyDown);
-  };
-}, []); // safe: onClose is read via ref, so no dep needed
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
+    function onKeyDown(e) {
+      if (e.key === 'Escape') onCloseRef.current?.();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []); // safe: onClose is read via ref, so no dep needed
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
@@ -409,13 +409,53 @@ useEffect(() => {
   }
 
   useEffect(() => {
-  if (tab !== 'privacy' && tab !== 'notifications') return;
+    if (tab !== 'privacy' && tab !== 'notifications') return;
 
-  client
-    .get('/users/friends')
-    .then((res) => setFriendsList(res.data.data || []))
-    .catch(() => setFriendsList([]));
-}, [tab]);
+    client
+      .get('/users/friends')
+      .then((res) => setFriendsList(res.data.data || []))
+      .catch(() => setFriendsList([]));
+  }, [tab]);
+
+  const [referralInfo, setReferralInfo] = useState(null);
+  const [referralLoading, setReferralLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== 'invite') return;
+    setReferralLoading(true);
+    getMyReferrals()
+      .then((res) => setReferralInfo(res.data))
+      .catch(() => setReferralInfo(null))
+      .finally(() => setReferralLoading(false));
+  }, [tab]);
+
+  function inviteShareText(link) {
+    return `Join me on QuantumChat, a private end-to-end encrypted messenger: ${link}`;
+  }
+
+  async function shareInviteNative() {
+    if (!referralInfo?.referralLink) return;
+    const text = inviteShareText(referralInfo.referralLink);
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Join me on QuantumChat', text, url: referralInfo.referralLink });
+      } catch {
+        // user cancelled share sheet
+      }
+    } else {
+      copyInviteLink();
+    }
+  }
+
+  async function copyInviteLink() {
+    if (!referralInfo?.referralLink) return;
+    try {
+      await navigator.clipboard.writeText(referralInfo.referralLink);
+      setOk('Invite link copied');
+    } catch {
+      setError('Could not copy link');
+    }
+  }
 
   useEffect(() => {
     if (tab !== 'security') return undefined;
@@ -1000,6 +1040,18 @@ useEffect(() => {
                   <ellipse cx="12" cy="5" rx="9" ry="3" />
                   <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
                   <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                </svg>
+              ),
+            },
+            {
+              id: 'invite',
+              label: t('settings.tabs.invite', 'Invite'),
+              icon: (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="8.5" cy="7" r="4" />
+                  <line x1="20" y1="8" x2="20" y2="14" />
+                  <line x1="17" y1="11" x2="23" y2="11" />
                 </svg>
               ),
             },
@@ -1713,15 +1765,15 @@ useEffect(() => {
 
                 <div className="settings-shield-badges">
                   <span className="settings-shield-badge">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
                     Capture Shield
                   </span>
                   <span className="settings-shield-badge">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                     Blackout on Web
                   </span>
                   <span className="settings-shield-badge">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
                     Recording Block
                   </span>
                 </div>
@@ -1791,7 +1843,7 @@ useEffect(() => {
                     disabled={busy}
                     onChange={(v) => updateNotifField('statusNotifications', v)}
                   />
-  
+
                   {notifSettings.statusNotifications === 'selected' && (
                     <div className="privacy-friend-picker">
                       <span className="privacy-select-description" style={{ marginBottom: 4 }}>
@@ -2820,8 +2872,87 @@ useEffect(() => {
               </div>
             </section>
           )}
-        </div>
+
+          {tab === 'invite' && (
+            <section className="settings-section">
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">Invite friends</h3>
+                <p className="settings-section-copy">
+                  Share your personal invite link. When someone joins using it, they'll show up below.
+                </p>
+                {referralLoading ? (
+                  <p className="settings-section-copy">Loading…</p>
+                ) : referralInfo ? (
+                  <>
+                    <label className="settings-field">
+                      <span>Your invite link</span>
+                      <input readOnly value={referralInfo.referralLink} onFocus={(e) => e.target.select()} />
+                    </label>
+                    <div className="settings-key-actions">
+                      <button type="button" className="settings-btn primary" onClick={shareInviteNative}>
+                        Share
+                      </button>
+                      <button type="button" className="settings-btn ghost" onClick={copyInviteLink}>
+                        Copy link
+                      </button>
+                    </div>
+                    <div className="invite-quick-share">
+                    <a
+                      className="settings-btn ghost"
+                      href={`https://wa.me/?text=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      >
+                      WhatsApp
+                    </a>
+
+                    <a className="settings-btn ghost"
+                    href={`mailto:?subject=${encodeURIComponent('Join me on QuantumChat')}&body=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                      >
+                    Email
+                  </a>
+
+               <a className="settings-btn ghost"
+                href={`sms:?&body=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                      >
+                Text message
+              </a>
+            </div>
+                  </>
+        ) : (
+        <p className="settings-section-copy">Could not load your invite link.</p>
+                )}
       </div>
+
+      <div className="settings-fieldset">
+        <h3 className="settings-section-title">
+          People you've invited {referralInfo ? `(${referralInfo.invitedCount})` : ''}
+        </h3>
+        {!referralInfo?.invitedUsers?.length ? (
+          <p className="settings-section-copy">No one has joined with your link yet.</p>
+        ) : (
+          <ul className="group-member-list">
+            {referralInfo.invitedUsers.map((u) => (
+              <li key={u.id}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <UserAvatar userId={u.id} name={u.displayName || u.username} hasAvatar={u.hasAvatar} size="sm" />
+                  <div>
+                    <strong>{u.displayName || u.username}</strong>
+                    <span className="group-member-meta">
+                      Joined {new Date(u.joinedAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  )
+}
+        </div >
+      </div >
       <DeviceLinkSetupModal
         open={deviceLinkSetupModalOpen}
         qrDataUrl={deviceLinkQr}
@@ -2839,6 +2970,6 @@ useEffect(() => {
         onReject={confirmDeviceLinkReject}
         onClose={closeDeviceLinkModal}
       />
-    </div>
+    </div >
   );
 }
