@@ -111,7 +111,7 @@ export default function StoryDraftsPanel({ open, onClose, onError, onChanged, on
   async function publishNow(id) {
     setBusyId(id);
     try {
-      await client.post(`/stories/${id}/publish`);
+      await client.post(`/stories/${id}/publish`, {});
       const next = items.filter((i) => i.id !== id);
       setItems(next);
       setEditId(null);
