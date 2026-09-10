@@ -21,9 +21,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { getDisplayName } from "../utils/getDisplayName.js";
 import { streamQuantumAI } from "../api/aiClient.js";
-import { fetchChatTheme, fetchThemeCatalog, fetchWallpaperImageUrl, fetchGroupChatTheme, fetchGroupWallpaperImageUrl } from '../api/chatThemes.js';
+import { fetchChatTheme, fetchGroupChatTheme, fetchGroupWallpaperImageUrl, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
 import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
@@ -67,6 +66,7 @@ import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
 import { useVault } from "../context/VaultContext.jsx";
+import { sealBytesAsync, secretboxSealAsync } from "../crypto/encryptFileAsync.js";
 import {
   downloadKeyFile,
   formatKeyFile,
@@ -74,17 +74,14 @@ import {
 } from "../crypto/keyFile.js";
 import {
   pickRandom,
-  sealBytes,
   sealMessage,
-  secretboxSeal,
-  unsealMessage,
+  unsealMessage
 } from "../crypto/keys.js";
-import { sealBytesAsync, secretboxSealAsync } from "../crypto/encryptFileAsync.js";
-import { compressVideo } from "../crypto/videoCompressor.js";
 import {
   findSecretKeyForPublicKey,
   getCurrentKeySet,
 } from "../crypto/keyStorage.js";
+import { compressVideo } from "../crypto/videoCompressor.js";
 import {
   attachmentIdOf,
   normalizeAttachment,
@@ -111,6 +108,7 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import { getDisplayName } from "../utils/getDisplayName.js";
 import {
   encodeAnnouncement,
   encodeEvent,
@@ -135,13 +133,13 @@ import {
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
+import { getMessagePreviewText } from "../utils/messagePreview.js";
 import {
   buildGroupedNotificationText,
   playNotificationSound,
   shouldNotify,
   showNotificationPopup
 } from "../utils/notificationDispatch.js";
-import { getMessagePreviewText } from "../utils/messagePreview.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
   conversationKeyForGroup,
@@ -1518,6 +1516,7 @@ useEffect(() => {
             : shouldNotify(notifSettings, {
               kind: raw.group ? "group" : "dm",
               isMention,
+              isAnnouncement: raw.kind === "announcement",   // NEW
             }));
 
         if (notifyOk) {
@@ -1747,6 +1746,28 @@ useEffect(() => {
           reactedByYou: actor.actorIsCurrentUser,
           conversationKey: groupId ? `group:${groupId}` : undefined,
         });
+      }
+
+      if (changed && String(actorId) !== String(user.id)) {
+        const convKey = groupId
+          ? conversationKeyForGroup(groupId)
+          : conversationKeyForUser(String(decorated.from) === String(user.id) ? decorated.to : decorated.from);
+        const muted = isChatMuted(user.id, convKey);
+        if (!muted && shouldNotify(notifSettings, { kind: 'reaction' })) {
+          playNotificationSound(notifSettings);
+          showNotificationPopup(
+            {
+              title: 'QuantumChat',
+              body: `${actor.actorLabel} reacted ${changed.emoji || ''} to your message`,
+              tag: groupId ? `group:${groupId}` : `dm:${[String(user.id), String(actorId)].sort().join(':')}`,
+            },
+            notifSettings,
+            () =>
+              handleSelectConversation(
+                groupId ? { key: convKey, type: 'group', id: groupId } : { key: convKey, type: 'dm', id: actorId },
+              ),
+          );
+        }
       }
 
       if (!isCurrentConversation(raw)) return;
