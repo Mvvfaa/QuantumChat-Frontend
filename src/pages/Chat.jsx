@@ -6694,14 +6694,6 @@ useEffect(() => {
                             key={item.key}
                             id={`msg-${mid}`}
                             className="message-item"
-                            onDoubleClick={() => {
-                              // 1. Clear any edit state so we don't conflict
-                              setEditingMessage(null);
-                              // 2. Set the current message as the one we are replying to
-                              setReplyTo(m);
-                              // 3. Automatically put the user's cursor inside the text box!
-                              textareaRef.current?.focus();
-                            }}
                           >
                             <SwipeableMessage
                               message={m}
@@ -6709,15 +6701,14 @@ useEffect(() => {
                               onReply={(msg) => {
                                 setEditingMessage(null);
                                 setReplyTo(msg);
+                                textareaRef.current?.focus();
                               }}
                               onLongPress={(msg) => setActionSheetMessage(msg)}
                               onDoubleTap={(msg) => {
-                                const emoji = getLastQuickReaction();
-                                const mid = msg.id || msg._id;
-                                if (mid) {
-                                  setLastQuickReaction(emoji);
-                                  handleReactMessage(mid, emoji);
-                                }
+                                // Double-click / double-tap = reply only (not a quick reaction)
+                                setEditingMessage(null);
+                                setReplyTo(msg);
+                                textareaRef.current?.focus();
                               }}
                               currentUserId={user.id}
                               resolveSecretKey={resolveMySecretKey}
