@@ -1,9 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
-import client from '../api/client.js';
-import { unsealBytes } from '../crypto/keys.js';
-import { attachmentIdOf, normalizeAttachment, pickAttachmentEnvelope } from '../crypto/voiceCache.js';
+import {
+  attachmentIdOf,
+  normalizeAttachment,
+  pickAttachmentEnvelope,
+  resolveSealedAttachment,
+} from '../crypto/voiceCache.js';
 import { useNotificationSettings } from '../context/NotificationSettingsContext.jsx';
 import VoicePlayer from './VoicePlayer.jsx';
+
+function useInView(ref, { rootMargin = '120px', enabled = true } = {}) {
+  const [inView, setInView] = useState(!enabled);
+  useEffect(() => {
+    if (!enabled) {
+      setInView(true);
+      return undefined;
+    }
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, enabled, rootMargin]);
+  return inView;
+}
 
 function FileIcon({ className }) {
   return (
@@ -144,6 +174,28 @@ export default function AttachmentBubble({
       (kind === 'image' && imageAutoOk) ||
       (kind === 'video' && videoAutoOk));
 
+  const hostRef = useRef(null);
+  // Images/videos wait until near the viewport; audio/pdf/text load immediately.
+  const lazyKinds = kind === 'image' || kind === 'video';
+  const inView = useInView(hostRef, { enabled: lazyKinds && autoPreview });
+
+  function mimeForKind() {
+    return (
+      attachment.mimetype ||
+      (kind === 'audio'
+        ? 'audio/webm'
+        : kind === 'pdf'
+          ? 'application/pdf'
+          : kind === 'image'
+            ? 'image/jpeg'
+            : kind === 'video'
+              ? 'video/mp4'
+              : kind === 'text'
+                ? 'text/plain'
+                : 'application/octet-stream')
+    );
+  }
+
   async function burn() {
     if (burnedRef.current || !onBurnViewOnce) return;
     burnedRef.current = true;
@@ -154,21 +206,16 @@ export default function AttachmentBubble({
     }
   }
 
-  async function decryptToUrl() {
+  async function decryptToUrl(signal) {
     if (!attachmentId || !opened) throw new Error('Cannot decrypt');
-    const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
-    const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
-    if (!plainBytes) throw new Error('Decrypt failed');
-    const mime =
-      attachment.mimetype ||
-      (kind === 'audio'
-        ? 'audio/webm'
-        : kind === 'image'
-          ? 'image/jpeg'
-          : kind === 'video'
-            ? 'video/mp4'
-            : 'application/octet-stream');
-    return URL.createObjectURL(new Blob([plainBytes], { type: mime }));
+    const { url } = await resolveSealedAttachment({
+      attachmentId,
+      envelope: opened.envelope,
+      secretKey: opened.secretKey,
+      mime: mimeForKind(),
+      signal,
+    });
+    return url;
   }
 
   async function openViewOnce() {
@@ -176,10 +223,7 @@ export default function AttachmentBubble({
     setStatus('loading');
     try {
       const url = await decryptToUrl();
-      setObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return url;
-      });
+      setObjectUrl(url);
       setUnlocked(true);
       setStatus('idle');
       if (kind === 'image') {
@@ -196,66 +240,52 @@ export default function AttachmentBubble({
   }
 
   useEffect(() => {
-    let revoked = null;
     let cancelled = false;
+    const abortController = new AbortController();
 
     async function load() {
       if (!autoPreview || !attachmentId || !opened) return;
+      if (lazyKinds && !inView) return;
 
       setStatus('loading');
       try {
-        const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
+        const { url, blob } = await resolveSealedAttachment({
+          attachmentId,
+          envelope: opened.envelope,
+          secretKey: opened.secretKey,
+          mime: mimeForKind(),
+          signal: abortController.signal,
+        });
         if (cancelled) return;
-        const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
-        if (!plainBytes) {
-          setStatus('error');
-          return;
-        }
-
-        const mime =
-          attachment.mimetype ||
-          (kind === 'audio'
-            ? 'audio/webm'
-            : kind === 'pdf'
-              ? 'application/pdf'
-              : kind === 'image'
-                ? 'image/jpeg'
-                : kind === 'video'
-                  ? 'video/mp4'
-                  : kind === 'text'
-                    ? 'text/plain'
-                    : 'application/octet-stream');
 
         if (kind === 'text') {
-          const text = new TextDecoder().decode(plainBytes).slice(0, 4000);
+          const text = new TextDecoder().decode(await blob.arrayBuffer()).slice(0, 4000);
           setTextPreview(text);
-          const url = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
-          revoked = url;
-          setObjectUrl(url);
-        } else {
-          const url = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
-          revoked = url;
-          setObjectUrl(url);
-          if (kind === 'image' && onImageReady) {
-            onImageReady(attachmentId, url, attachment.filename);
-          }
-          if (kind === 'video' && onVideoReady) {
-            onVideoReady(attachmentId, url, attachment.filename);
-          }
+        }
+        setObjectUrl(url);
+        if (kind === 'image' && onImageReady) {
+          onImageReady(attachmentId, url, attachment.filename);
+        }
+        if (kind === 'video' && onVideoReady) {
+          onVideoReady(attachmentId, url, attachment.filename);
         }
         setStatus('idle');
-      } catch {
-        if (!cancelled) setStatus('error');
+      } catch (err) {
+        if (cancelled || err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+        setStatus('error');
       }
     }
 
     load();
     return () => {
       cancelled = true;
-      if (revoked) URL.revokeObjectURL(revoked);
+      abortController.abort();
+      // Keep session-cached object URLs — gallery / remount reuse them.
     };
   }, [
     autoPreview,
+    inView,
+    lazyKinds,
     attachmentId,
     opened?.secretKey,
     opened?.envelope?.nonce,
@@ -268,18 +298,14 @@ export default function AttachmentBubble({
   async function handleManualOpen() {
     setStatus('loading');
     try {
-      const res = await client.get(`/attachments/${attachmentId}/raw`, { responseType: 'arraybuffer' });
-      const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
-      if (!plainBytes) {
-        setStatus('error');
-        return;
-      }
-      const mime = attachment.mimetype || 'application/octet-stream';
-      const blob = new Blob([plainBytes], { type: mime });
-      const url = URL.createObjectURL(blob);
+      const { url } = await resolveSealedAttachment({
+        attachmentId,
+        envelope: opened.envelope,
+        secretKey: opened.secretKey,
+        mime: attachment.mimetype || 'application/octet-stream',
+      });
       setObjectUrl(url);
       triggerDownload(url, attachment.filename);
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setStatus('idle');
     } catch {
       setStatus('error');
@@ -445,7 +471,7 @@ export default function AttachmentBubble({
 
   if (kind === 'image' && objectUrl) {
     return (
-      <div className="attachment-media">
+      <div ref={hostRef} className="attachment-media">
         <img
           className="attachment-preview"
           src={objectUrl}
@@ -472,7 +498,7 @@ export default function AttachmentBubble({
 
   if (kind === 'video' && objectUrl) {
     return (
-      <div className="attachment-media">
+      <div ref={hostRef} className="attachment-media">
         <video className="attachment-video" src={objectUrl} controls playsInline preload="metadata" />
         {!viewOnce && (
           <div className="attachment-media-actions">
@@ -540,10 +566,14 @@ export default function AttachmentBubble({
     );
   }
 
+  if (autoPreview && lazyKinds && !inView && !objectUrl) {
+    return <div ref={hostRef} className="skeleton attachment-preview-placeholder" aria-hidden="true" />;
+  }
+
   if (status === 'loading' && autoPreview) {
     if (kind === 'audio') {
       return (
-        <div className="attachment-chip attachment-chip-voice">
+        <div ref={hostRef} className="attachment-chip attachment-chip-voice">
           <span className="attachment-filename">
             <MicIcon className="file-icon" />
             <span>Decrypting voice note…</span>
@@ -551,7 +581,7 @@ export default function AttachmentBubble({
         </div>
       );
     }
-    return <div className="skeleton attachment-preview-placeholder" />;
+    return <div ref={hostRef} className="skeleton attachment-preview-placeholder" />;
   }
 
   if (status === 'error' && autoPreview) {

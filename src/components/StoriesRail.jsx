@@ -3,7 +3,6 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
 import {
-  aesGcmDecryptBytes,
   cacheKeyForStory,
   resolveStoryMediaBlob,
   storyMediaBlobCache,
@@ -1027,51 +1026,15 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
       if (story.sealed) {
         const unlocked = unlockStoryKey(story, currentUserId);
         const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
-
         if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
           setBlockedReason('Sealed story — no envelope for your keys');
           return;
         }
-
-        setLoadPhase('download');
-        const res = await client.get(`/stories/${story.id}/media`, {
-          responseType: 'arraybuffer',
-          signal: abortController.signal,
-          timeout: 90_000,
-          onDownloadProgress: (evt) => {
-            if (!evt.total) return;
-            setDownloadPct(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
-          },
-        });
-
-        if (abortController.signal.aborted) return;
-
-        setLoadPhase('decrypt');
-        setDownloadPct(100);
-        await new Promise((r) => requestAnimationFrame(() => r()));
-
-        const cipherBytes = new Uint8Array(res.data);
-        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
-
-        if (abortController.signal.aborted) return;
-
-        const mime = story.mimetype || 'application/octet-stream';
-        const blob = new Blob([plain], { type: mime });
-        objectUrl = URL.createObjectURL(blob);
-        storyMediaCache.set(cacheKey, objectUrl);
-        storyMediaBlobCache.set(cacheKey, blob);
-        setMediaUrl(objectUrl);
-        setMediaBlob(blob);
-        setLoadPhase('');
-        pingViewed();
-        return;
       }
 
       setLoadPhase('download');
-      const res = await client.get(`/stories/${story.id}/media`, {
-        responseType: 'blob',
+      const blob = await resolveStoryMediaBlob(story, currentUserId, {
         signal: abortController.signal,
-        timeout: 90_000,
         onDownloadProgress: (evt) => {
           if (!evt.total) return;
           setDownloadPct(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
@@ -1080,10 +1043,14 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
       if (abortController.signal.aborted) return;
 
-      const blob = res.data;
-      objectUrl = URL.createObjectURL(blob);
-      storyMediaCache.set(cacheKey, objectUrl);
-      storyMediaBlobCache.set(cacheKey, blob);
+      setLoadPhase('decrypt');
+      setDownloadPct(100);
+      // Decrypt already finished inside resolve — brief paint so UI can show phase.
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      if (abortController.signal.aborted) return;
+
+      objectUrl = storyMediaCache.get(cacheKey) || URL.createObjectURL(blob);
+      if (!storyMediaCache.has(cacheKey)) storyMediaCache.set(cacheKey, objectUrl);
       setMediaUrl(objectUrl);
       setMediaBlob(blob);
       setLoadPhase('');
@@ -1103,6 +1070,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           setBlockedReason('Story media is missing on the server');
         } else if (err.code === 'ECONNABORTED') {
           setBlockedReason('Status download timed out — try again');
+        } else if (err.message?.includes('No decryption key')) {
+          setBlockedReason('Sealed story — no envelope for your keys');
         } else {
           setBlockedReason('Could not decrypt this sealed story');
         }
@@ -1124,24 +1093,30 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     };
   }, [story.id, story.sealed, story.contentIv, story.mimetype, currentUserId]);
 
-  // Prefetch the next story's media in the background so tapping "next"
-  // feels instant instead of showing a loading spinner every time.
+  // Prefetch next 1–2 stories so advancing feels instant.
   useEffect(() => {
-    const nextStory = group.items[index + 1];
-    if (!nextStory) return undefined;
-    if (!viewerCanSeeStory(nextStory, currentUserId)) return undefined;
+    const controllers = [];
+    const toPrefetch = [group.items[index + 1], group.items[index + 2]].filter(Boolean);
 
-    const nextCacheKey = cacheKeyForStory(nextStory);
-    if (storyMediaBlobCache.has(nextCacheKey)) return undefined; // already warm
+    (async () => {
+      for (const nextStory of toPrefetch) {
+        if (!viewerCanSeeStory(nextStory, currentUserId)) continue;
+        const nextCacheKey = cacheKeyForStory(nextStory);
+        if (storyMediaBlobCache.has(nextCacheKey)) continue;
+        const abortController = new AbortController();
+        controllers.push(abortController);
+        try {
+          await resolveStoryMediaBlob(nextStory, currentUserId, {
+            signal: abortController.signal,
+          });
+        } catch {
+          // Best-effort prefetch
+        }
+      }
+    })();
 
-    let cancelled = false;
-    // Best-effort — a failed prefetch just means the normal loader kicks in
-    // when the user actually navigates there, so errors are intentionally swallowed.
-    resolveStoryMediaBlob(nextStory, currentUserId).catch(() => {
-      if (cancelled) return;
-    });
     return () => {
-      cancelled = true;
+      for (const c of controllers) c.abort();
     };
   }, [index, group.items, currentUserId]);
 

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { File as FileIcon, Lock, Play, X } from 'lucide-react';
-import client from '../../api/client.js';
-import { unsealBytes } from '../../crypto/keys.js';
-import { attachmentIdOf, pickAttachmentEnvelope } from '../../crypto/voiceCache.js';
+import { pickAttachmentEnvelope, resolveSealedAttachment, attachmentIdOf } from '../../crypto/voiceCache.js';
 
 function classify(mimetype) {
   const mime = String(mimetype || '');
@@ -55,32 +53,33 @@ function MediaThumb({ item, cachedEntry, resolveSecretKey, onReady, onClick }) {
       return;
     }
     let cancelled = false;
-    let revoked = null;
+    const abortController = new AbortController();
 
     (async () => {
       setStatus('loading');
       try {
-        const res = await client.get(`/attachments/${item.id}/raw`, { responseType: 'arraybuffer' });
-        if (cancelled) return;
-        const plainBytes = unsealBytes(new Uint8Array(res.data), opened.envelope, opened.secretKey);
-        if (!plainBytes) {
-          setStatus('error');
-          return;
-        }
         const mime = item.attachment.mimetype || (item.kind === 'video' ? 'video/mp4' : 'image/jpeg');
-        const objectUrl = URL.createObjectURL(new Blob([plainBytes], { type: mime }));
-        revoked = objectUrl;
+        const { url: objectUrl } = await resolveSealedAttachment({
+          attachmentId: item.id,
+          envelope: opened.envelope,
+          secretKey: opened.secretKey,
+          mime,
+          signal: abortController.signal,
+        });
+        if (cancelled) return;
         setUrl(objectUrl);
         setStatus('ready');
         onReady?.(item.id, objectUrl, item.attachment.filename);
-      } catch {
-        if (!cancelled) setStatus('error');
+      } catch (err) {
+        if (cancelled || err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+        setStatus('error');
       }
     })();
 
     return () => {
       cancelled = true;
-      // Don't revoke — the src map now owns this URL for reuse elsewhere.
+      abortController.abort();
+      // Don't revoke — session cache / src map own this URL.
     };
   }, [inView, url, item, resolveSecretKey, onReady]);
 
