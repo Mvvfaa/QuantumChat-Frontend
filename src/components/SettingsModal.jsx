@@ -508,7 +508,7 @@ export default function SettingsModal({
       if (key === 'screenshotProtection') {
         setOk(
           val
-            ? 'Screenshot protection on — open a chat, then try Print Screen to test'
+            ? 'Screenshot protection on — only your chats are protected for others'
             : 'Screenshot protection off'
         );
       } else {
@@ -1790,10 +1790,11 @@ export default function SettingsModal({
                   </span>
                 </div>
                 <p className="settings-section-copy">
-                  When enabled, screenshot and screen-capture shortcuts are blocked
-                  while you (or others) are viewing chats and profiles — best-effort
-                  on web (black screen + alert), stronger on the mobile app.
-                  Open a chat after enabling to activate protection on this device.
+                  When enabled, only <strong>your</strong> chats and profile are
+                  protected — other people cannot freely screenshot them on their
+                  device (best-effort on web, stronger on mobile). Chats with people
+                  who have not turned this on stay normal. Enabling it does not
+                  protect every chat you open.
                 </p>
 
                 <div className="settings-shield-badges">
@@ -1813,7 +1814,7 @@ export default function SettingsModal({
 
                 <ToggleRow
                   label="Screenshot protection"
-                  hint="Block screenshots in chats on this device and for people viewing your chats"
+                  hint="Protect only your chats for people who view them — not every chat on your device"
                   checked={privacy.screenshotProtection === true}
                   disabled={busy}
                   onChange={(v) => updatePrivacyField('screenshotProtection', v)}
