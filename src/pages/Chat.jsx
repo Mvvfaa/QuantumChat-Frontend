@@ -2989,17 +2989,16 @@ useEffect(() => {
         users,
         groups,
         resolveDmPeer,
-        viewerPrivacy: user?.privacy,
       }),
-    [user?.id, user?.privacy, selected, profileUserId, users, groups, resolveDmPeer],
+    [user?.id, selected, profileUserId, users, groups, resolveDmPeer],
   );
   useScreenshotProtection(screenshotProtectionOn, {
     scope: "chat",
     onAttempt: (reason) => {
       showToast(
         reason === "screenshot"
-          ? "Screenshot blocked — this chat is protected"
-          : "Screen capture blocked — this chat is protected",
+          ? "Screenshot blocked — this contact protects their chat"
+          : "Screen capture blocked — this contact protects their chat",
         "info",
         3500,
       );
