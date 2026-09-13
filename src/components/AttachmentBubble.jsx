@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   attachmentIdOf,
   normalizeAttachment,
@@ -453,13 +454,24 @@ export default function AttachmentBubble({
             Done · remove
           </button>
         </div>
-        {viewerOpen ? (
+        {/* Portal to body: the message list/bubbles are transformed (motion),
+            which would trap this position:fixed overlay inside the chat pane. */}
+        {viewerOpen ? createPortal(
           <div className="lightbox-overlay" role="dialog" aria-modal="true" onClick={closeViewOnceViewer}>
-            <button type="button" className="lightbox-close" onClick={closeViewOnceViewer} aria-label="Close">
+            <button
+              type="button"
+              className="lightbox-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeViewOnceViewer();
+              }}
+              aria-label="Close"
+            >
               ✕
             </button>
             <img src={objectUrl} alt="View once photo" className="lightbox-image" onClick={(e) => e.stopPropagation()} />
-          </div>
+          </div>,
+          document.body,
         ) : null}
       </>
     );

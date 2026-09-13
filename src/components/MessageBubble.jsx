@@ -752,9 +752,9 @@ function MessageBubble({
             <button
               ref={moreRef}
               type="button"
-              className={`message-more-btn ${anyPopover ? 'visible' : ''}`}
+              className={`message-more-btn ${anyPopover ? 'visible' : ''} ${menuOpen ? 'active' : ''}`}
               aria-label="Message options"
-              aria-expanded={anyPopover}
+              aria-expanded={menuOpen}
               onClick={() => {
                 anchorRef.current = moreRef.current;
                 setMenuOpen((v) => !v);
