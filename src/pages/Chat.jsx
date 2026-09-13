@@ -5733,7 +5733,7 @@ useEffect(() => {
       }
     }
     if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
-      vars['--chat-wallpaper'] = `url(${customWallpaperUrl})`;
+      vars['--chat-wallpaper'] = `url("${customWallpaperUrl}") center/cover no-repeat`;
     } else if (chatTheme.wallpaperId && chatTheme.wallpaperId !== 'none' && chatTheme.wallpaperId !== 'custom') {
       vars['--chat-wallpaper'] = getWallpaperBackground(chatTheme.wallpaperId);
     }
@@ -6145,7 +6145,15 @@ useEffect(() => {
             ? handleDrop
             : undefined
         }
+        style={selected ? themeStyle : undefined}
       >
+        {canChat && selected && themeStyle['--chat-wallpaper'] && (
+          <div
+            className="chat-wallpaper-layer"
+            data-wallpaper-fx={getWallpaperFx(chatTheme.wallpaperId) || undefined}
+            aria-hidden="true"
+          />
+        )}
         {!canChat && (
           <div className="key-unlock">
             <div className="key-unlock-card">
@@ -6621,12 +6629,10 @@ useEffect(() => {
                     className="message-list"
                     ref={messageListRef}
                     onScroll={handleScroll}
-                    data-wallpaper-fx={getWallpaperFx(chatTheme.wallpaperId) || undefined}
                     initial={{ opacity: 0, x: 12 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                    style={themeStyle}
                   >
                     {loadingOlder && (
                       <div className="load-older-hint">
