@@ -4239,7 +4239,7 @@ input:focus-visible,
 }
 
 .message-more-btn:hover,
-.message-more-btn.visible {
+.message-more-btn.active {
   background: var(--accent-muted);
   color: var(--accent);
   border-color: var(--accent);
@@ -5734,7 +5734,7 @@ input:focus-visible,
 }
 
 .message-more-btn:hover,
-.message-more-btn.visible {
+.message-more-btn.active {
   background: var(--accent-muted);
   color: var(--accent);
   border-color: var(--accent);
