@@ -1554,13 +1554,17 @@ input:focus-visible,
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px 6px;
+  gap: 14px;
+  padding: 18px 20px 14px 24px;
   flex-shrink: 0;
   position: relative;
   z-index: 2;
   width: 100%;
   box-sizing: border-box;
+}
+
+.settings-modal-heading {
+  min-width: 0;
 }
 
 .settings-modal-heading h2 {
@@ -1569,6 +1573,10 @@ input:focus-visible,
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  /* Row layout so the accent dot (::before) sits beside the title, not on it */
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .settings-modal-heading p {
@@ -1600,9 +1608,10 @@ input:focus-visible,
 
 .settings-tabs {
   display: flex;
+  align-items: center;
   flex-shrink: 0;
-  gap: 2px;
-  padding: 0 10px;
+  gap: 4px;
+  padding: 8px 16px;
   margin: 0;
   width: 100%;
   box-sizing: border-box;
@@ -1618,22 +1627,26 @@ input:focus-visible,
   display: none;
 }
 
+/* Pill tabs: icon + label side by side, never shrinking into each other
+   (the row scrolls horizontally when it runs out of room). */
 .settings-tab {
-  flex: 1 1 0;
-  min-width: 4.5rem;
-  padding: 12px 6px 13px;
-  margin-bottom: -1px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+  flex: 1 0 auto;
+  min-width: max-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
-  text-align: center;
+  user-select: none;
   transition:
     color var(--transition-fast),
     border-color var(--transition-fast),
@@ -1642,14 +1655,16 @@ input:focus-visible,
 
 .settings-tab:hover {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: var(--border-subtle);
 }
 
 .settings-tab.active {
   color: var(--accent);
-  border-bottom-color: var(--accent);
   font-weight: 700;
-  background: transparent;
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: var(--shadow-sm);
 }
 
 .settings-body {
@@ -15250,7 +15265,7 @@ body.theme-dreamcloud {
   .settings-tab {
     flex: 0 0 auto;
     min-width: max-content;
-    padding: 12px 14px 13px;
+    padding: 8px 12px;
   }
 
   .group-settings-modal {
@@ -16971,11 +16986,12 @@ body.theme-eyecare {
 .settings-modal-heading h2::before {
   content: '';
   display: inline-block;
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent-gradient, #14b8a6);
-  box-shadow: 0 0 10px rgba(34, 211, 238, 0.8);
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 .device-link-scanner {
   position: fixed;
@@ -17070,8 +17086,8 @@ body.theme-eyecare {
 }
 .settings-tab.active .settings-tab-icon {
   opacity: 1;
-  color: var(--accent-cyan, #22d3ee);
-  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.6));
+  color: var(--accent);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent));
 }
 .settings-body::-webkit-scrollbar {
   width: 6px;
@@ -17987,7 +18003,7 @@ body.theme-light .settings-tab:hover {
 body.theme-light .settings-tab.active {
   color: var(--accent);
   background: var(--accent-muted, rgba(13, 148, 136, 0.1));
-  border: 1px solid rgba(13, 148, 136, 0.35);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   box-shadow: var(--shadow-sm);
 }
 [data-theme='light'] .settings-tab.active .settings-tab-icon,
