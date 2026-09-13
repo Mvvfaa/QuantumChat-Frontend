@@ -1,7 +1,12 @@
 const MUTE_PREFIX = 'qc_muted_chats_';
 const ARCHIVE_PREFIX = 'qc_archived_chats_';
+const DRAFT_PREFIX = 'qc_draft_';
 const INFO_PANEL_KEY = 'qc_info_panel_open';
 const LAST_REACTION_KEY = 'qc_last_quick_reaction';
+
+function draftKey(userId, conversationKey) {
+  return `${DRAFT_PREFIX}${userId}_${conversationKey}`;
+}
 
 function readList(prefix, userId) {
   if (!userId) return [];
@@ -71,6 +76,29 @@ export function unarchiveChat(userId, conversationKey) {
 export function toggleArchiveChat(userId, conversationKey) {
   if (isChatArchived(userId, conversationKey)) return unarchiveChat(userId, conversationKey);
   return archiveChat(userId, conversationKey);
+}
+
+export function getChatDraft(userId, conversationKey) {
+  if (!userId || !conversationKey) return '';
+  try {
+    return localStorage.getItem(draftKey(userId, conversationKey)) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveChatDraft(userId, conversationKey, text) {
+  if (!userId || !conversationKey) return;
+  try {
+    const key = draftKey(userId, conversationKey);
+    if (String(text || '').length > 0) {
+      localStorage.setItem(key, String(text));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage errors; sending messages must still work.
+  }
 }
 
 export function getInfoPanelOpen() {

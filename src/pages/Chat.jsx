@@ -97,10 +97,12 @@ import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../the
 import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
+  getChatDraft,
   getInfoPanelOpen,
   getLastQuickReaction,
   getMutedChatKeys,
   isChatMuted,
+  saveChatDraft,
   setInfoPanelOpen,
   setLastQuickReaction,
   toggleArchiveChat,
@@ -404,6 +406,12 @@ export default function Chat() {
   const [searchResults, setSearchResults] = useState(null); // null = not searching
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef(null);
+
+  useEffect(() => {
+    if (!user?.id || !selected?.key) return;
+    saveChatDraft(user.id, selected.key, draft);
+  }, [draft, selected?.key, user?.id]);
+
   useEffect(() => {
     const mqMobile = window.matchMedia("(max-width: 768px)");
     const mqCompact = window.matchMedia("(max-width: 1023px)");
@@ -3243,7 +3251,7 @@ useEffect(() => {
     }
     setSelected(c);
     setError("");
-    setDraft("");
+    setDraft(getChatDraft(user.id, c.key));
     setReplyTo(null);
     setEditingMessage(null);
     setShowEmojiPicker(false);
