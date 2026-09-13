@@ -77,6 +77,8 @@ export function viewerCanSeeStory(story, currentUserId) {
 export const storyMediaCache = new Map();
 /** Parallel blob cache so highlights can upload without re-fetching. */
 export const storyMediaBlobCache = new Map();
+/** In-flight downloads so viewer + prefetch share one network round-trip. */
+const storyInflight = new Map();
 
 export function cacheKeyForStory(story) {
   return `${story.id}:${story.sealed ? '1' : '0'}:${story.contentIv || ''}`;
@@ -84,35 +86,58 @@ export function cacheKeyForStory(story) {
 
 /**
  * Fetch + (if needed) decrypt a story's media and return a Blob.
- * Uses the shared cache StoryViewer already primes, so if the viewer
- * already opened this story once, this resolves instantly with no fetch.
+ * Concurrent callers share one in-flight request per story.
  */
-export async function resolveStoryMediaBlob(story, currentUserId) {
+export async function resolveStoryMediaBlob(story, currentUserId, options = {}) {
+  const { signal, onDownloadProgress } = options;
   const cacheKey = cacheKeyForStory(story);
   const cachedBlob = storyMediaBlobCache.get(cacheKey);
   if (cachedBlob) return cachedBlob;
 
-  if (story.sealed) {
-    const unlocked = unlockStoryKey(story, currentUserId);
-    const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
-    if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
-      throw new Error('No decryption key available for this story');
+  const existing = storyInflight.get(cacheKey);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    if (story.sealed) {
+      const unlocked = unlockStoryKey(story, currentUserId);
+      const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
+      if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
+        throw new Error('No decryption key available for this story');
+      }
+      const res = await client.get(`/stories/${story.id}/media`, {
+        responseType: 'arraybuffer',
+        timeout: 90_000,
+        signal,
+        onDownloadProgress,
+      });
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const cipherBytes = new Uint8Array(res.data);
+      const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
+      const blob = new Blob([plain], { type: story.mimetype || 'application/octet-stream' });
+      if (!storyMediaCache.has(cacheKey)) {
+        storyMediaCache.set(cacheKey, URL.createObjectURL(blob));
+      }
+      storyMediaBlobCache.set(cacheKey, blob);
+      return blob;
     }
+
     const res = await client.get(`/stories/${story.id}/media`, {
-      responseType: 'arraybuffer',
+      responseType: 'blob',
       timeout: 90_000,
+      signal,
+      onDownloadProgress,
     });
-    const cipherBytes = new Uint8Array(res.data);
-    const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.payload.keyB64, ivB64);
-    const blob = new Blob([plain], { type: story.mimetype || 'application/octet-stream' });
-    storyMediaCache.set(cacheKey, URL.createObjectURL(blob));
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const blob = res.data;
+    if (!storyMediaCache.has(cacheKey)) {
+      storyMediaCache.set(cacheKey, URL.createObjectURL(blob));
+    }
     storyMediaBlobCache.set(cacheKey, blob);
     return blob;
-  }
+  })().finally(() => {
+    storyInflight.delete(cacheKey);
+  });
 
-  const res = await client.get(`/stories/${story.id}/media`, { responseType: 'blob', timeout: 90_000 });
-  const blob = res.data;
-  storyMediaCache.set(cacheKey, URL.createObjectURL(blob));
-  storyMediaBlobCache.set(cacheKey, blob);
-  return blob;
+  storyInflight.set(cacheKey, promise);
+  return promise;
 }

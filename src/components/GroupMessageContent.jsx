@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BarChart2, Check } from 'lucide-react';
-import client from '../api/client.js';
 import { secretboxOpen } from '../crypto/keys.js';
+import { resolveGroupAttachment } from '../crypto/voiceCache.js';
 import { isEmojiOnlyText, splitEmojis } from '../utils/emojis.js';
 import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
@@ -43,33 +43,33 @@ function GroupFileCard({ payload, isMine }) {
   const [mime, setMime] = useState(payload.mimetype || 'application/octet-stream');
 
   useEffect(() => {
-    let revoked;
     let cancelled = false;
+    const abortController = new AbortController();
     async function load() {
       if (!payload?.attachmentId || !payload.key || !payload.nonce) return;
       setStatus('loading');
       try {
-        const res = await client.get(`/attachments/${payload.attachmentId}/raw`, { responseType: 'arraybuffer' });
+        const { url: objectUrl } = await resolveGroupAttachment({
+          attachmentId: payload.attachmentId,
+          keyB64: payload.key,
+          nonce: payload.nonce,
+          mime: payload.mimetype || 'application/octet-stream',
+          signal: abortController.signal,
+          openFn: secretboxOpen,
+        });
         if (cancelled) return;
-        const plain = secretboxOpen(new Uint8Array(res.data), payload.nonce, payload.key);
-        if (!plain) {
-          setStatus('error');
-          return;
-        }
-        const type = payload.mimetype || 'application/octet-stream';
-        setMime(type);
-        const objectUrl = URL.createObjectURL(new Blob([plain], { type }));
-        revoked = objectUrl;
+        setMime(payload.mimetype || 'application/octet-stream');
         setUrl(objectUrl);
         setStatus('idle');
-      } catch {
-        if (!cancelled) setStatus('error');
+      } catch (err) {
+        if (cancelled || err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+        setStatus('error');
       }
     }
     load();
     return () => {
       cancelled = true;
-      if (revoked) URL.revokeObjectURL(revoked);
+      abortController.abort();
     };
   }, [payload?.attachmentId, payload?.key, payload?.nonce, payload?.mimetype]);
 
@@ -136,18 +136,14 @@ function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
     if (isMine || !payload?.attachmentId || !payload.key || !payload.nonce) return;
     setStatus('loading');
     try {
-      const res = await client.get(`/attachments/${payload.attachmentId}/raw`, { responseType: 'arraybuffer' });
-      const plain = secretboxOpen(new Uint8Array(res.data), payload.nonce, payload.key);
-      if (!plain) {
-        setStatus('error');
-        return;
-      }
-      const type = payload.mimetype || 'application/octet-stream';
-      const objectUrl = URL.createObjectURL(new Blob([plain], { type }));
-      setUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return objectUrl;
+      const { url: objectUrl } = await resolveGroupAttachment({
+        attachmentId: payload.attachmentId,
+        keyB64: payload.key,
+        nonce: payload.nonce,
+        mime: payload.mimetype || 'application/octet-stream',
+        openFn: secretboxOpen,
       });
+      setUrl(objectUrl);
       setUnlocked(true);
       setStatus('idle');
       if (kind === 'image') setViewerOpen(true);
