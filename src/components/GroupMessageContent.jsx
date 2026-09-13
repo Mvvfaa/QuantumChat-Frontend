@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import client from '../api/client.js';
+import { BarChart2, Check } from 'lucide-react';
 import { secretboxOpen } from '../crypto/keys.js';
+import { resolveGroupAttachment } from '../crypto/voiceCache.js';
 import { isEmojiOnlyText, splitEmojis } from '../utils/emojis.js';
 import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
+import VoicePlayer from './VoicePlayer.jsx';
+import LinkifiedText from './LinkifiedText.jsx';
 
 function MentionText({ text }) {
   const parts = [];
@@ -34,39 +37,39 @@ function mediaKindFromPayload(payload) {
   return 'image';
 }
 
-function GroupFileCard({ payload }) {
+function GroupFileCard({ payload, isMine }) {
   const [url, setUrl] = useState(null);
   const [status, setStatus] = useState('idle');
   const [mime, setMime] = useState(payload.mimetype || 'application/octet-stream');
 
   useEffect(() => {
-    let revoked;
     let cancelled = false;
+    const abortController = new AbortController();
     async function load() {
       if (!payload?.attachmentId || !payload.key || !payload.nonce) return;
       setStatus('loading');
       try {
-        const res = await client.get(`/attachments/${payload.attachmentId}/raw`, { responseType: 'arraybuffer' });
+        const { url: objectUrl } = await resolveGroupAttachment({
+          attachmentId: payload.attachmentId,
+          keyB64: payload.key,
+          nonce: payload.nonce,
+          mime: payload.mimetype || 'application/octet-stream',
+          signal: abortController.signal,
+          openFn: secretboxOpen,
+        });
         if (cancelled) return;
-        const plain = secretboxOpen(new Uint8Array(res.data), payload.nonce, payload.key);
-        if (!plain) {
-          setStatus('error');
-          return;
-        }
-        const type = payload.mimetype || 'application/octet-stream';
-        setMime(type);
-        const objectUrl = URL.createObjectURL(new Blob([plain], { type }));
-        revoked = objectUrl;
+        setMime(payload.mimetype || 'application/octet-stream');
         setUrl(objectUrl);
         setStatus('idle');
-      } catch {
-        if (!cancelled) setStatus('error');
+      } catch (err) {
+        if (cancelled || err?.name === 'CanceledError' || err?.name === 'AbortError') return;
+        setStatus('error');
       }
     }
     load();
     return () => {
       cancelled = true;
-      if (revoked) URL.revokeObjectURL(revoked);
+      abortController.abort();
     };
   }, [payload?.attachmentId, payload?.key, payload?.nonce, payload?.mimetype]);
 
@@ -87,7 +90,7 @@ function GroupFileCard({ payload }) {
     return <video className="attachment-video" src={url} controls playsInline />;
   }
   if (mime.startsWith('audio/')) {
-    return <audio src={url} controls className="attachment-audio" />;
+    return <VoicePlayer url={url} isMine={isMine} />;
   }
   if (mime === 'application/pdf') {
     return (
@@ -133,18 +136,14 @@ function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
     if (isMine || !payload?.attachmentId || !payload.key || !payload.nonce) return;
     setStatus('loading');
     try {
-      const res = await client.get(`/attachments/${payload.attachmentId}/raw`, { responseType: 'arraybuffer' });
-      const plain = secretboxOpen(new Uint8Array(res.data), payload.nonce, payload.key);
-      if (!plain) {
-        setStatus('error');
-        return;
-      }
-      const type = payload.mimetype || 'application/octet-stream';
-      const objectUrl = URL.createObjectURL(new Blob([plain], { type }));
-      setUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return objectUrl;
+      const { url: objectUrl } = await resolveGroupAttachment({
+        attachmentId: payload.attachmentId,
+        keyB64: payload.key,
+        nonce: payload.nonce,
+        mime: payload.mimetype || 'application/octet-stream',
+        openFn: secretboxOpen,
       });
+      setUrl(objectUrl);
       setUnlocked(true);
       setStatus('idle');
       if (kind === 'image') setViewerOpen(true);
@@ -186,15 +185,7 @@ function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
   if (!url) return null;
 
   if (kind === 'audio') {
-    return (
-      <audio
-        src={url}
-        controls
-        autoPlay
-        className="attachment-audio"
-        onEnded={burn}
-      />
-    );
+    return <VoicePlayer url={url} autoPlay onPlayedThrough={burn} />;
   }
 
   if (kind === 'video') {
@@ -273,6 +264,8 @@ export default function GroupMessageContent({
   isMine,
   onImagePreview,
   onImageReady,
+  onVideoPreview,
+  onVideoReady,
   onBurnViewOnce,
 }) {
   if (!payload || payload.type === 'text') {
@@ -303,7 +296,7 @@ export default function GroupMessageContent({
         className={`message-text ${detectTextDirection(body) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
         dir={detectTextDirection(body)}
       >
-        <MentionText text={body} />
+        <LinkifiedText text={body} />
       </div>
     );
   }
@@ -315,7 +308,7 @@ export default function GroupMessageContent({
         dir={detectTextDirection(payload.body)}
       >
         <span className="group-kind-badge">Announcement</span>
-        <MentionText text={payload.body || ''} />
+        <LinkifiedText text={payload.body || ''} />
       </div>
     );
   }
@@ -336,19 +329,35 @@ export default function GroupMessageContent({
   }
 
   if (payload.type === 'poll') {
-    const votes = message.pollVotes || [];
+    const votes = Array.isArray(message.pollVotes) ? message.pollVotes : [];
     const total = votes.length;
-    const myVote = votes.find((v) => String(v.user) === String(currentUserId));
-    const options = payload.options || [];
+    const myVote = votes.find((v) => {
+      const uId = v?.user?._id || v?.user?.id || v?.user;
+      return String(uId) === String(currentUserId);
+    });
+    const options = Array.isArray(payload.options) ? payload.options : [];
+    const pollDir = detectTextDirection(payload.question);
+    const isRtl = pollDir === 'rtl';
+
     return (
-      <div className="group-poll-card">
-        <span className="group-kind-badge">Poll</span>
-        <strong>{payload.question}</strong>
+      <div
+        className={`group-poll-card ${isMine ? 'is-mine' : 'is-theirs'} ${isRtl ? 'is-rtl' : ''}`}
+        dir={isRtl ? 'rtl' : undefined}
+      >
+        <div className="group-poll-header">
+          <span className="group-poll-badge">
+            <BarChart2 size={11} strokeWidth={2.5} className="group-poll-badge-icon" />
+            POLL
+          </span>
+        </div>
+        <h4 className="group-poll-question">{payload.question}</h4>
         <div className="group-poll-options">
           {options.map((opt, idx) => {
-            const count = votes.filter((v) => v.optionIndex === idx).length;
-            const pct = total ? Math.round((count / total) * 100) : 0;
-            const selected = myVote?.optionIndex === idx;
+            const count = votes.filter((v) => Number(v.optionIndex) === idx).length;
+            const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+            const selected = myVote != null && Number(myVote.optionIndex) === idx;
+            const optDir = detectTextDirection(opt);
+
             return (
               <button
                 key={idx}
@@ -356,19 +365,46 @@ export default function GroupMessageContent({
                 className={`group-poll-option ${selected ? 'selected' : ''}`}
                 onClick={() => onVotePoll?.(message.id || message._id, idx)}
                 disabled={!onVotePoll}
+                aria-pressed={selected}
               >
-                <span className="group-poll-fill" style={{ width: `${pct}%` }} />
-                <span className="group-poll-label">
-                  {opt}
-                  <em>
-                    {count} · {pct}%
-                  </em>
-                </span>
+                <span
+                  className="group-poll-fill"
+                  style={{ width: `${pct}%` }}
+                  aria-hidden="true"
+                />
+                <div className="group-poll-option-inner">
+                  <div className="group-poll-option-left">
+                    <span
+                      className={`group-poll-radio ${selected ? 'checked' : ''}`}
+                      aria-hidden="true"
+                    >
+                      {selected && (
+                        <Check size={11} strokeWidth={3.2} className="group-poll-radio-check" />
+                      )}
+                    </span>
+                    <span className="group-poll-option-text" dir={optDir === 'rtl' ? 'rtl' : undefined}>
+                      {opt}
+                    </span>
+                  </div>
+                  <div className="group-poll-option-stats">
+                    <span className="group-poll-pct">{pct}%</span>
+                    <span className="group-poll-count">
+                      {count} {count === 1 ? 'vote' : 'votes'}
+                    </span>
+                  </div>
+                </div>
               </button>
             );
           })}
         </div>
-        <div className="group-poll-meta">{total} vote{total === 1 ? '' : 's'}</div>
+        <div className="group-poll-footer">
+          <span className="group-poll-total">
+            {total} {total === 1 ? 'vote' : 'votes'}
+          </span>
+          <span className="group-poll-status" aria-hidden="true">
+            • {myVote ? 'Voted' : 'Select an option to vote'}
+          </span>
+        </div>
       </div>
     );
   }
@@ -393,7 +429,7 @@ export default function GroupMessageContent({
         />
       );
     }
-    return <GroupFileCard payload={payload} />;
+    return <GroupFileCard payload={payload} isMine={isMine} />;
   }
 
   if (attachment) {
@@ -404,6 +440,8 @@ export default function GroupMessageContent({
         resolveSecretKey={resolveSecretKey}
         onImagePreview={onImagePreview}
         onImageReady={onImageReady}
+        onVideoPreview={onVideoPreview}
+        onVideoReady={onVideoReady}
         viewOnce={Boolean(message.viewOnce)}
         viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
         viewOnceMediaKind={message.viewOnceMediaKind}
@@ -412,5 +450,5 @@ export default function GroupMessageContent({
     );
   }
 
-  return <MentionText text={message?.text || ''} />;
+  return <LinkifiedText text={message?.text || ''} />;
 }

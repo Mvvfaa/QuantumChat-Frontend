@@ -19,12 +19,14 @@ import {
 } from 'lucide-react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { COMPOSER_EMOJIS, QUICK_REACTIONS, isEmojiOnlyText, searchEmojis, splitEmojis } from '../utils/emojis.js';
 import { parseGroupPayload } from '../utils/groupPayload.js';
+import { getMessagePreviewText } from '../utils/messagePreview.js';
 import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
-
+import LinkifiedText from './LinkifiedText.jsx';
 const MENU_GAP = 8;
 const VIEW_PAD = 12;
 
@@ -130,6 +132,7 @@ function MessageBubble({
   starred,
   pinned,
   showReadReceipts = true,
+  groupRecipientCount,
   onDelete,
   onDeleteForMe,
   onReact,
@@ -142,12 +145,15 @@ function MessageBubble({
   onJumpToReply,
   onImagePreview,
   onImageReady,
+  onVideoPreview,
+  onVideoReady,
   onOpenStory,
   onVotePoll,
   onBurnViewOnce,
   onShowInfo,
   onShowEditHistory,
 }) {
+  const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
   const [reactSearchOpen, setReactSearchOpen] = useState(false);
@@ -222,13 +228,58 @@ function MessageBubble({
     return null;
   }, [message.text]);
 
+  const groupRecipientTotal = useMemo(() => {
+    if (!message.group) return 1;
+    if (typeof groupRecipientCount === 'number' && groupRecipientCount > 0) {
+      return groupRecipientCount;
+    }
+    if (Array.isArray(message.envelopes)) {
+      const count = message.envelopes.filter((e) => String(e.user) !== String(currentUserId)).length;
+      if (count > 0) return count;
+    }
+    return 1;
+  }, [message.group, message.envelopes, groupRecipientCount, currentUserId]);
+
   const receiptStatus = useMemo(() => {
     if (!isMine) return null;
     if (message._status === 'sending') return 'sending';
+    if (message.group) {
+      const readSet = new Set(
+        (Array.isArray(message.readBy) ? message.readBy : [])
+          .map((r) => String(r.user))
+          .filter((uid) => uid !== String(currentUserId)),
+      );
+      const deliveredSet = new Set([
+        ...(Array.isArray(message.deliveredTo) ? message.deliveredTo : [])
+          .map((d) => String(d.user))
+          .filter((uid) => uid !== String(currentUserId)),
+        ...readSet,
+      ]);
+
+      const total = groupRecipientTotal;
+      if (total > 0 && readSet.size >= total && showReadReceipts) {
+        return 'read';
+      }
+      if (total > 0 && deliveredSet.size >= total) {
+        return 'delivered';
+      }
+      return 'sent';
+    }
     if (message.readAt && showReadReceipts) return 'read';
     if (message.deliveredAt || message.readAt) return 'delivered';
     return 'sent';
-  }, [isMine, message.readAt, message.deliveredAt, message._status, showReadReceipts]);
+  }, [
+    isMine,
+    message._status,
+    message.group,
+    message.readBy,
+    message.deliveredTo,
+    message.readAt,
+    message.deliveredAt,
+    showReadReceipts,
+    currentUserId,
+    groupRecipientTotal,
+  ]);
 
   const relativeTime = useMemo(() => formatMessageTime(message.createdAt), [message.createdAt]);
   const fullTime = useMemo(() => new Date(message.createdAt).toLocaleString(), [message.createdAt]);
@@ -330,26 +381,26 @@ function MessageBubble({
         className={`message-popover ${isMine ? 'mine' : 'theirs'} ${coords.placement} ${coords.ready ? 'ready' : ''}`}
         style={{ top: coords.top, left: coords.left }}
         role={menuOpen ? 'menu' : 'listbox'}
-        aria-label={menuOpen ? 'Message options' : 'Pick a reaction'}
+        aria-label={menuOpen ? t('chat.messageOptions', 'Message options') : t('chat.pickReaction', 'Pick a reaction')}
       >
         {menuOpen && (
           <>
             {onReply && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onReply(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Reply size={16} strokeWidth={2} /></span>
-                <span>Reply</span>
+                <span>{t('chat.reply', 'Reply')}</span>
               </button>
             )}
             {isMine && onShowInfo && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onShowInfo(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Info size={16} strokeWidth={2} /></span>
-                <span>Message info</span>
+                <span>{t('messageInfo.title', 'Message info')}</span>
               </button>
             )}
             {hasTextContent && onCopy && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onCopy(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Copy size={16} strokeWidth={2} /></span>
-                <span>Copy</span>
+                <span>{t('chat.copy', 'Copy')}</span>
               </button>
             )}
             {hasTextContent &&
@@ -362,7 +413,7 @@ function MessageBubble({
               ) && (
                 <button type="button" role="menuitem" onClick={() => { closeAll(); onForward(message); }}>
                   <span className="message-menu-icon" aria-hidden="true"><Forward size={16} strokeWidth={2} /></span>
-                  <span>Forward</span>
+                  <span>{t('chat.forward', 'Forward')}</span>
                 </button>
               )}
             {onStar && (
@@ -375,31 +426,31 @@ function MessageBubble({
                     stroke={starred ? '#FFC107' : 'currentColor'}
                   />
                 </span>
-                <span>{starred ? 'Unstar' : 'Star'}</span>
+                <span>{starred ? t('chat.unstar', 'Unstar') : t('chat.star', 'Star')}</span>
               </button>
             )}
             {onPin && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onPin(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pin size={16} strokeWidth={2} /></span>
-                <span>{pinned ? 'Unpin' : 'Pin'}</span>
+                <span>{pinned ? t('chat.unpin', 'Unpin') : t('chat.pin', 'Pin')}</span>
               </button>
             )}
             {isMine && onEdit && !message.attachment && !isStructured && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onEdit(message); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Pencil size={16} strokeWidth={2} /></span>
-                <span>Edit</span>
+                <span>{t('chat.edit', 'Edit')}</span>
               </button>
             )}
             {onDeleteForMe && (
               <button type="button" role="menuitem" onClick={() => { closeAll(); onDeleteForMe(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Trash2 size={16} strokeWidth={2} /></span>
-                <span>Delete for me</span>
+                <span>{t('chat.deleteForMe', 'Delete for me')}</span>
               </button>
             )}
             {isMine && onDelete && (
               <button type="button" className="danger" role="menuitem" onClick={() => { closeAll(); onDelete(messageId); }}>
                 <span className="message-menu-icon" aria-hidden="true"><Trash2 size={16} strokeWidth={2} /></span>
-                <span>Delete for everyone</span>
+                <span>{t('chat.deleteForEveryone', 'Delete for everyone')}</span>
               </button>
             )}
           </>
@@ -515,17 +566,19 @@ function MessageBubble({
                 disabled={!onJumpToReply}
               >
                 <span className="message-reply-label">{replyPreview.label}</span>
-                <span className="message-reply-text">{replyPreview.text}</span>
+                <span className="message-reply-text">{getMessagePreviewText(replyPreview.text)}</span>
               </button>
             )}
            {(message.viewOnce && message.viewOnceOpenedAt) ||
   (message.attachment && structured.type !== 'file' && !isStoryReply) ? (
-              <AttachmentBubble
+               <AttachmentBubble
                 attachment={message.attachment}
                 isMine={isMine}
                 resolveSecretKey={keyResolver}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                onVideoPreview={onVideoPreview}
+                onVideoReady={onVideoReady}
                 viewOnce={Boolean(message.viewOnce)}
                 viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
                 viewOnceMediaKind={message.viewOnceMediaKind}
@@ -571,6 +624,8 @@ function MessageBubble({
                 isMine={isMine}
                 onImagePreview={onImagePreview}
                 onImageReady={onImageReady}
+                onVideoPreview={onVideoPreview}
+                onVideoReady={onVideoReady}
                 onBurnViewOnce={
                   onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
                 }
@@ -618,16 +673,16 @@ function MessageBubble({
                     ) : null}
                   </div>
                 </button>
-                {storyReplyPayload.replyMediaKind === 'gif' ? (
-                  storyReplyPayload.gifUrl ? (
-                    // Legacy pre-encryption GIF replies — still stored as a plaintext URL
-                    <img
-                      src={storyReplyPayload.gifUrl}
-                      alt="GIF"
-                      loading="lazy"
-                      style={{ display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 10, marginTop: 6 }}
-                    />
-                  ) : message.attachment ? (
+                 {storyReplyPayload.replyMediaKind === 'gif' && storyReplyPayload.gifUrl ? (
+                  // Legacy pre-encryption GIF replies — still stored as a plaintext URL
+                  <img
+                    src={storyReplyPayload.gifUrl}
+                    alt="GIF"
+                    loading="lazy"
+                    style={{ display: 'block', maxWidth: 220, maxHeight: 220, borderRadius: 10, marginTop: 6 }}
+                  />
+                ) : ['gif', 'voice', 'image', 'video', 'file'].includes(storyReplyPayload.replyMediaKind) ? (
+                  message.attachment ? (
                     <AttachmentBubble
                       attachment={message.attachment}
                       isMine={isMine}
@@ -635,10 +690,12 @@ function MessageBubble({
                       onImagePreview={onImagePreview}
                       onImageReady={onImageReady}
                     />
-                  ) : null
-                ) : (
+                  ) : (
+                    <em dir="auto">[Attachment missing]</em>
+                  )
+                ) : storyReplyPayload.text ? (
                   <div>{storyReplyPayload.text}</div>
-                )}
+                ) : null}
               </div>
             ) : hasTextContent ? (
               emojiOnly ? (
@@ -659,11 +716,11 @@ function MessageBubble({
                 </span>
               ) : (
                 <span
-                  className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
-                  dir={detectTextDirection(message.text)}
-                >
-                  {message.text}
-                </span>
+  className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
+  dir={detectTextDirection(message.text)}
+>
+  <LinkifiedText text={message.text} />
+</span>
               )
             ) : isDecryptionFail ? (
               <em dir="auto">[Unable to decrypt message]</em>

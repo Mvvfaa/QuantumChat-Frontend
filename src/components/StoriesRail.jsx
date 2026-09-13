@@ -1,6 +1,15 @@
-import { Eye, Send, Smile, X, Paperclip, Mic, Square } from 'lucide-react';
+import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paperclip, Pencil, Send, Smile, Square, Type, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import client from '../api/client.js';
+import {
+  cacheKeyForStory,
+  resolveStoryMediaBlob,
+  storyMediaBlobCache,
+  storyMediaCache,
+  unlockStoryKey,
+  viewerCanSeeStory,
+} from '../utils/storyMedia.js';
 import { getSocket } from '../api/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage, unsealMessage } from '../crypto/keys.js';
@@ -14,8 +23,16 @@ import {
 import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
 import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import HighlightPickerSheet from './HighlightPickerSheet.jsx';
+import StoryHistoryPanel from './StoryHistoryPanel.jsx';
+import { StoryLocalPreview, StoryPublishControls, useStoryPublishOptions } from './StoryPublishControls.jsx';
+import TextStoryComposer from './TextStoryComposer.jsx';
 import UserAvatar from './UserAvatar.jsx';
+import { compressVideo } from '../crypto/videoCompressor.js';
 const MAX_STORY_SECONDS = 60;
+const MAX_STORY_UPLOAD_BYTES = 95 * 1024 * 1024; // stay under server 100MB limit
+const COMPRESS_IF_LARGER_THAN = 4 * 1024 * 1024; // compress status videos over ~4MB
+const FORCE_COMPRESS_IF_LARGER_THAN = 20 * 1024 * 1024; // don't skip re-encode above ~20MB
 const TTL_PRESETS = [
   { label: '1 hour', ms: 60 * 60 * 1000 },
   { label: '6 hours', ms: 6 * 60 * 60 * 1000 },
@@ -65,21 +82,7 @@ async function aesGcmEncryptBlob(file) {
   };
 }
 
-async function aesGcmDecryptBytes(cipherBytes, keyB64, ivB64) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    base64ToBytes(keyB64),
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt']
-  );
-  const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: base64ToBytes(ivB64) },
-    key,
-    cipherBytes
-  );
-  return new Uint8Array(plain);
-}
+
 
 function probeMediaDuration(file) {
   return new Promise((resolve, reject) => {
@@ -87,22 +90,35 @@ function probeMediaDuration(file) {
     const isVideo = file.type.startsWith('video/');
     const el = document.createElement(isVideo ? 'video' : 'audio');
     el.preload = 'metadata';
-    el.onloadedmetadata = () => {
-      const durationMs = Math.round((el.duration || 0) * 1000);
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
-      resolve(durationMs);
+      el.removeAttribute('src');
+      el.load?.();
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      finish(reject, new Error('Could not read this video — try another clip'));
+    }, 12_000);
+    el.onloadedmetadata = () => {
+      const seconds = el.duration;
+      if (!Number.isFinite(seconds) || seconds <= 0) {
+        finish(reject, new Error('Could not read this video duration — try another clip'));
+        return;
+      }
+      finish(resolve, Math.round(seconds * 1000));
     };
     el.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('Could not read media duration'));
+      finish(reject, new Error('Could not read this video — try another clip'));
     };
     el.src = url;
   });
 }
 
-function envelopeUserId(envelope) {
-  return String(envelope?.user?.id || envelope?.user || '');
-}
+
 
 function buildStoryEnvelopes(audience, keyB64, ivB64) {
   const secretPayload = JSON.stringify({ keyB64, ivB64 });
@@ -114,60 +130,40 @@ function buildStoryEnvelopes(audience, keyB64, ivB64) {
   });
 }
 
-function tryParseKeyPayload(text) {
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed?.keyB64 && parsed?.ivB64) return parsed;
-  } catch {
-    // ignore
-  }
-  return null;
-}
 
 /**
  * Open the AES media key from any of this viewer's story envelopes.
  * Returns { ok: true, payload } on success, or { ok: false, reason, targetPublicKey? }
  * so the UI can show a precise message (no envelope vs. no matching secret vs. decrypt failure).
  */
-function unlockStoryKey(story, currentUserId) {
-  const uid = String(currentUserId?.id || currentUserId || '');
-  if (!uid) return { ok: false, reason: 'no-envelope' };
 
-  const envelopes = (story.envelopes || []).filter((e) => envelopeUserId(e) === uid);
-  if (!envelopes.length) return { ok: false, reason: 'no-envelope' };
 
-  const ring = getKeyring(uid);
 
-  for (const envelope of envelopes) {
-    const hinted = envelope.targetPublicKey
-      ? findSecretKeyForPublicKey(uid, envelope.targetPublicKey)
-      : null;
 
-    if (hinted) {
-      const payload = tryParseKeyPayload(unsealMessage(envelope, hinted));
-      if (payload) return { ok: true, payload };
-    }
 
-    // Fallback: try every local secret (covers a stale/mismatched targetPublicKey hint).
-    for (const entry of ring) {
-      if (hinted && entry.secretKey === hinted) continue;
-      const payload = tryParseKeyPayload(unsealMessage(envelope, entry.secretKey));
-      if (payload) return { ok: true, payload };
-    }
-  }
-
-  return {
-    ok: false,
-    reason: 'no-secret',
-    targetPublicKey: envelopes[0]?.targetPublicKey,
-  };
+function formatElapsed(dateStr) {
+  if (!dateStr) return '';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
-function viewerCanSeeStory(story, currentUserId) {
-  if (!story?.sealed) return true;
-  const uid = String(currentUserId?.id || currentUserId || '');
-  return (story.envelopes || []).some((e) => envelopeUserId(e) === uid);
+function formatRemaining(expiresAtStr) {
+  if (!expiresAtStr) return '';
+  const diffMs = new Date(expiresAtStr).getTime() - Date.now();
+  if (diffMs <= 0) return 'Expired';
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 60) return `${mins}m left`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h left`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours ? `${days}d ${remHours}h left` : `${days}d left`;
 }
 
 const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], onError, notifSettings }, ref) {
@@ -176,11 +172,22 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [viewer, setViewer] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [pendingFile, setPendingFile] = useState(null);
-  const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
+  const [uploadPhase, setUploadPhase] = useState(''); // '', 'compress', 'encrypt', 'upload'
+  const [composerError, setComposerError] = useState('');
+ const [pendingQueue, setPendingQueue] = useState([]); // File[]
+  const [pendingIndex, setPendingIndex] = useState(0);
+ const [pendingPreviewUrl, setPendingPreviewUrl] = useState(null);
+ const [batchProgress, setBatchProgress] = useState(null); // { done, total } while posting
   const [unavailable, setUnavailable] = useState(false);
-  const inputRef = useRef(null);
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const [textComposerOpen, setTextComposerOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+ const [historyTab, setHistoryTab] = useState('drafts');
+  const [draftCount, setDraftCount] = useState(0);
+  const [fabHost, setFabHost] = useState(null);
 
+  const mediaInputRef = useRef(null);
+  const audioInputRef = useRef(null);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -192,6 +199,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       map.get(uid).items.push(story);
     }
     const list = [...map.values()];
+    // Server returns stories newest-first; playback should go oldest → newest.
+    for (const group of list) {
+      group.items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    }
     list.sort((a, b) => {
       const aOwn = String(a.user?.id) === String(currentUser?.id);
       const bOwn = String(b.user?.id) === String(currentUser?.id);
@@ -214,8 +225,18 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     }
   }
 
+  async function loadDraftsCount() {
+    try {
+      const { data } = await client.get('/stories/mine/drafts');
+      setDraftCount((data.data || []).length);
+    } catch {
+      setDraftCount(0);
+    }
+  }
+
   useEffect(() => {
     loadStories().catch(() => { });
+    loadDraftsCount().catch(() => { });
   }, []);
 
   useEffect(() => {
@@ -232,8 +253,10 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
     if (!isOwn) {
       const mode = notifSettings?.statusNotifications;
-      const isFriend = (currentUser?.friends || []).map(String).includes(String(payload.user?.id));
-      const allowed = mode !== 'off' && (mode !== 'favorites_only' || isFriend);
+      const isSelected = (notifSettings?.statusNotificationsSelectedFriends || [])
+        .map(String)
+        .includes(String(payload.user?.id));
+      const allowed = mode !== 'off' && (mode !== 'selected' || isSelected);
       if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
         playNotificationSound(notifSettings);
         showNotificationPopup(
@@ -256,19 +279,64 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   };
 }, [currentUser?.id, currentUser?.friends, notifSettings]);
 
+  useEffect(() => {
+    setFabHost(document.querySelector('.qc-conversation-pane'));
+  }, []);
+
+  const ownGroup = useMemo(
+    () => grouped.find((g) => String(g.user?.id) === String(currentUser?.id)) || null,
+    [grouped, currentUser?.id]
+  );
+
+  useEffect(() => {
+    if (!createSheetOpen) return undefined;
+    function onKey(e) {
+      if (e.key === 'Escape') setCreateSheetOpen(false);
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [createSheetOpen]);
+
   function handleFileSelected(e) {
-    const file = e.target.files?.[0];
+     const files = Array.from(e.target.files || []);
     e.target.value = '';
-    if (!file) return;
+    if (!files.length) return;
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
-    setPendingFile(file);
-    setPendingPreviewUrl(URL.createObjectURL(file));
+    setCreateSheetOpen(false);
+    setTextComposerOpen(false);
+    setComposerError('');
+ setPendingQueue(files);
+   setPendingIndex(0);
+    setPendingPreviewUrl(URL.createObjectURL(files[0]));
+  }
+
+  function openCreateSheet() {
+    if (uploading) return;
+    setCreateSheetOpen(true);
+  }
+
+  function openOwnStoriesOrCreate() {
+    if (uploading) return;
+    if (ownGroup?.items?.length) {
+      setUnavailable(false);
+      setViewer({ group: ownGroup, index: 0 });
+      return;
+    }
+    openCreateSheet();
   }
 
 
-  async function uploadStory(file, ttlMs, allowReplies = true) {
+  function reportStoryError(message) {
+    const text = String(message || 'Failed to upload story');
+    setComposerError(text);
+    onError?.(text);
+  }
+
+  async function uploadStory(file, ttlMs, allowReplies = true, options = {}) {
     try {
       setUploading(true);
+      setUploadPhase('');
+      setComposerError('');
 
       // Make sure our local keyring is actually in sync with the server before
       // sealing anything to it — this is the fix for stories being undecryptable.
@@ -278,29 +346,74 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       const ownerUser = getStoredUser() || currentUser;
       const sync = getKeyringSyncStatus(ownerUser.id, ownerUser.publicKeys || []);
       if (sync.status !== 'synced') {
-        onError?.(
+        reportStoryError(
           'Encryption keys are out of sync with the server. Use Settings → Regenerate & resync keys before posting stories.'
         );
         return false;
       }
 
+      let fileToUpload = file;
       let durationMs = 0;
-      if (file.type.startsWith('video/') || file.type.startsWith('audio/')) {
-        durationMs = await probeMediaDuration(file);
+      const looksLikeAv =
+        file.type.startsWith('video/') ||
+        file.type.startsWith('audio/') ||
+        /\.(mp4|mov|webm|m4v|mkv|mp3|m4a|wav|ogg)$/i.test(file.name || '');
+      if (looksLikeAv) {
+        try {
+          durationMs = await probeMediaDuration(file);
+        } catch (err) {
+          reportStoryError(err?.message || 'Could not read this media file');
+          return false;
+        }
         if (durationMs > MAX_STORY_SECONDS * 1000) {
-          onError?.(`Stories must be ${MAX_STORY_SECONDS} seconds or shorter`);
+          reportStoryError(
+            `This video is too long (${Math.ceil(durationMs / 1000)}s). Stories must be ${MAX_STORY_SECONDS} seconds or shorter.`
+          );
           return false;
         }
       }
 
+      // Large phone videos exceed the upload limit — compress before sealing.
+      const isVideo =
+        file.type.startsWith('video/') ||
+        /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name || '');
+      if (isVideo && file.size > COMPRESS_IF_LARGER_THAN) {
+        setUploadPhase('compress');
+        try {
+          fileToUpload = await compressVideo(
+            file,
+            undefined,
+            undefined,
+            { force: file.size > FORCE_COMPRESS_IF_LARGER_THAN }
+          );
+        } catch (err) {
+          if (file.size > MAX_STORY_UPLOAD_BYTES) {
+            reportStoryError(
+              err?.message ||
+                'Could not compress this video. Try a shorter clip under 60 seconds.'
+            );
+            return false;
+          }
+          // Compression failed but original still fits — continue with original.
+          fileToUpload = file;
+        }
+      }
+
+      if (fileToUpload.size > MAX_STORY_UPLOAD_BYTES) {
+        reportStoryError(
+          'This video is still too large after compression. Try a shorter clip (under 60 seconds).'
+        );
+        return false;
+      }
+
+      const status = options.status || 'published';
       const form = new FormData();
       const canSeal = typeof crypto !== 'undefined' && crypto.subtle;
 
       if (canSeal) {
-        const sealed = await aesGcmEncryptBlob(file);
+        setUploadPhase('encrypt');
+        const sealed = await aesGcmEncryptBlob(fileToUpload);
 
-        // Seal the author envelope to keys this device actually holds (same
-        // pattern as chat forSender), not a possibly stale session publicKeys list.
         const ownerKeySet = getCurrentKeySet(ownerUser.id, KEY_SET_SIZE);
         const ownerPublicKeys = ownerKeySet.map((k) => k.publicKey).filter(Boolean);
         if (ownerPublicKeys.length !== KEY_SET_SIZE) {
@@ -325,7 +438,6 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         for (const u of users) {
           if (!u?.id || !u.publicKeys?.length) continue;
           if (String(u.id) === String(ownerUser.id)) continue;
-           // --- Story privacy filter
           if (storyPrivacy === 'nobody') continue;
           if (storyPrivacy === 'friends' && !friendSet.has(String(u.id))) continue;
           if (storyPrivacy === 'selected' && !selectedSet.has(String(u.id))) continue;
@@ -354,46 +466,115 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         form.append(
           'file',
           new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
-          file.name || 'story.bin'
+          fileToUpload.name || 'story.bin'
         );
         form.append('sealed', 'true');
-        form.append('mimetype', file.type || 'application/octet-stream');
-        if (file.type.startsWith('image/')) form.append('mediaType', 'image');
-        else if (file.type.startsWith('video/')) form.append('mediaType', 'video');
-        else if (file.type.startsWith('audio/')) form.append('mediaType', 'audio');
+        const mime =
+          fileToUpload.type ||
+          (isVideo ? 'video/mp4' : file.type.startsWith('audio/') ? 'audio/webm' : 'application/octet-stream');
+        form.append('mimetype', mime);
+        if (mime.startsWith('image/')) form.append('mediaType', 'image');
+        else if (mime.startsWith('video/') || isVideo) form.append('mediaType', 'video');
+        else if (mime.startsWith('audio/')) form.append('mediaType', 'audio');
         form.append('contentIv', sealed.ivB64);
         form.append('envelopes', JSON.stringify(envelopes));
       } else {
-        form.append('file', file);
+        form.append('file', fileToUpload);
       }
       form.append('durationMs', String(durationMs));
       form.append('ttlMs', String(ttlMs));
       form.append('allowReplies', String(allowReplies));
+      form.append('viewOnce', String(Boolean(options.viewOnce)));
+      form.append('status', status);
+      if (status === 'scheduled' && options.publishAt) {
+        form.append('publishAt', options.publishAt);
+      }
 
-      await client.post('/stories', form);
-      await loadStories();
+      setUploadPhase('upload');
+      await client.post('/stories', form, { timeout: 5 * 60 * 1000 });
+      if (status === 'published') await loadStories();
+      await loadDraftsCount();
       return true;
     } catch (err) {
-      onError?.(err.response?.data?.error || err.message || 'Failed to upload story');
+      const msg = err.response?.data?.error || err.message || 'Failed to upload story';
+      reportStoryError(msg);
       return false;
     } finally {
       setUploading(false);
+      setUploadPhase('');
     }
   }
 
   function closeComposer() {
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
-    setPendingFile(null);
-    setPendingPreviewUrl(null);
+    setPendingQueue([]);
+    setPendingIndex(0);
+     setPendingPreviewUrl(null);
+     setTextComposerOpen(false);
+     setComposerError('');
+    setBatchProgress(null);
+
   }
 
-  async function confirmPostStory(ttlMs, allowReplies) {
-    const file = pendingFile;
+  async function confirmPostStory(ttlMs, allowReplies, options = {}) {
+     if (!pendingQueue.length || uploading) return;
+    const total = pendingQueue.length;
+    setBatchProgress({ done: 0, total });
+
+    for (let i = 0; i < total; i += 1) {
+     const file = pendingQueue[i];
+      setPendingIndex(i);
+      if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+      setPendingPreviewUrl(URL.createObjectURL(file));
+
+      // Scheduled batches: stagger publishAt by a few seconds each so they
+      // don't all collide on the same instant and reorder unpredictably.
+      const itemOptions =
+        options.status === 'scheduled' && options.publishAt
+          ? { ...options, publishAt: new Date(new Date(options.publishAt).getTime() + i * 5000).toISOString() }
+          : options;
+
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await uploadStory(file, ttlMs, allowReplies, itemOptions);
+      if (!ok) {
+        // uploadStory already reported the error via reportStoryError.
+        setBatchProgress(null);
+        return;
+      }
+      setBatchProgress({ done: i + 1, total });
+    }
+
+    closeComposer();
+   }
+  async function confirmPostTextStory(file, ttlMs, allowReplies, options = {}) {
     if (!file || uploading) return;
-    const ok = await uploadStory(file, ttlMs, allowReplies);
+    const ok = await uploadStory(file, ttlMs, allowReplies, options);
     if (ok) closeComposer();
   }
 
+   async function openDraftPreview(draft) {
+    setHistoryOpen(false);
+    try {
+      setUnavailable(false);
+      setViewer({
+        group: {
+          user: draft.user || {
+            id: currentUser?.id,
+            username: currentUser?.username,
+            hasAvatar: currentUser?.hasAvatar,
+          },
+          items: [draft],
+        },
+        index: 0,
+      });
+    } catch {
+      onError?.('Could not open draft preview');
+    }
+  }
+  function openActiveStoryPreview(items, index) {
+    setUnavailable(false);
+    setViewer({ group: { user: currentUser, items }, index });
+  }
   useImperativeHandle(ref, () => ({
     async openStoryById(storyId) {
       try {
@@ -412,26 +593,56 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       <p className="stories-privacy-note">
         Sealed stories use X5 envelopes so allowed contacts can decrypt; the server only stores ciphertext.
       </p>
-      <button
-        type="button"
-        className={`story-ring add${uploading ? ' uploading' : ''}`}
-        onClick={() => inputRef.current?.click()}
-        disabled={uploading}
-        aria-label="Add story"
-      >
-        <UserAvatar
-          userId={currentUser?.id}
-          name={currentUser?.username}
-          hasAvatar={currentUser?.hasAvatar}
-          size="story"
-        />
-        <span className="story-add-badge">{uploading ? '…' : '+'}</span>
-        <span className="story-ring-label">{uploading ? 'Uploading…' : 'Your story'}</span>
-      </button>
+
+
+      <div className="story-add-wrap">
+        <button
+          type="button"
+          className={`story-ring add${uploading ? ' uploading' : ''}${ownGroup?.items?.length ? ' has-own' : ''}`}
+          onClick={openOwnStoriesOrCreate}
+          disabled={uploading}
+          aria-label={ownGroup?.items?.length ? 'View your status' : 'Add status'}
+        >
+          <UserAvatar
+            userId={currentUser?.id}
+            name={currentUser?.username}
+            hasAvatar={currentUser?.hasAvatar}
+            size="story"
+          />
+          <span className="story-ring-label">
+            {uploading
+              ? uploadPhase === 'compress'
+                ? 'Compressing…'
+                : uploadPhase === 'encrypt'
+                  ? 'Encrypting…'
+                  : 'Uploading…'
+              : 'My status'}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="story-add-badge"
+          disabled={uploading}
+          aria-label="Add status"
+          onClick={openCreateSheet}
+        >
+          {uploading ? '…' : '+'}
+        </button>
+      </div>
+
       <input
-        ref={inputRef}
+        ref={mediaInputRef}
         type="file"
-        accept="image/*,video/*,audio/*"
+        accept="image/*,video/*"
+        multiple
+        hidden
+        onChange={handleFileSelected}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
         hidden
         onChange={handleFileSelected}
       />
@@ -446,7 +657,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
       {!storiesLoading &&
         grouped
-          .filter((g) => String(g.user?.id) !== String(currentUser?.id) || g.items.length > 0)
+          .filter((g) => String(g.user?.id) !== String(currentUser?.id))
           .map((g) => {
             const hasSealed = g.items.some((s) => s.sealed);
             return (
@@ -496,15 +707,203 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           </div>
         </div>
       )}
-      {pendingFile && (
+     {pendingQueue.length > 0 && (
         <StoryComposer
-          file={pendingFile}
+         file={pendingQueue[pendingIndex]}
           previewUrl={pendingPreviewUrl}
           onCancel={closeComposer}
           onConfirm={confirmPostStory}
           uploading={uploading}
+          uploadPhase={uploadPhase}
+                    batchProgress={batchProgress}
+         queueLength={pendingQueue.length}
+          error={composerError}
+          onError={reportStoryError}
         />
       )}
+            {textComposerOpen && !pendingQueue.length && (
+        <TextStoryComposer
+          onCancel={() => setTextComposerOpen(false)}
+          onConfirm={confirmPostTextStory}
+          uploading={uploading}
+          onError={onError}
+        />
+      )}
+
+       <StoryHistoryPanel
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        currentUserId={currentUser?.id}
+        initialTab={historyTab}
+        onError={onError}
+        onChanged={() => {
+          loadStories();
+          loadDraftsCount();
+        }}
+        onPreviewDraft={openDraftPreview}
+        onPreviewStory={openActiveStoryPreview}
+      />
+
+      {createSheetOpen &&
+        createPortal(
+          <div
+            className="status-create-overlay"
+            onClick={() => setCreateSheetOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="status-create-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Add status"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="status-create-handle" aria-hidden />
+
+              <div className="status-create-header">
+                <div className="status-create-heading-wrap">
+                  <h2 className="status-create-title">Add status</h2>
+                  <p className="status-create-subtitle">Share a photo, video, voice note, or text</p>
+                </div>
+                <button
+                  type="button"
+                  className="status-create-close"
+                  onClick={() => setCreateSheetOpen(false)}
+                  aria-label="Close"
+                >
+                  <X size={18} aria-hidden />
+                </button>
+              </div>
+
+              <div className="status-create-options">
+                <button
+                  type="button"
+                  className="status-create-option media-opt"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    mediaInputRef.current?.click();
+                  }}
+                >
+                  <span className="status-create-icon media">
+                    <ImagePlus size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <strong>Photo &amp; video</strong>
+                    <small>Upload from your gallery</small>
+                  </span>
+                  <span className="status-create-arrow">
+                    <ChevronRight size={16} aria-hidden />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="status-create-option audio-opt"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    audioInputRef.current?.click();
+                  }}
+                >
+                  <span className="status-create-icon audio">
+                    <Mic size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <strong>Voice note</strong>
+                    <small>Share an audio status</small>
+                  </span>
+                  <span className="status-create-arrow">
+                    <ChevronRight size={16} aria-hidden />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="status-create-option text-opt"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    setTextComposerOpen(true);
+                  }}
+                >
+                  <span className="status-create-icon text">
+                    <Type size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <strong>Text status</strong>
+                    <small>Type with colors and fonts</small>
+                  </span>
+                  <span className="status-create-arrow">
+                    <ChevronRight size={16} aria-hidden />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="status-create-option drafts-opt"
+                  onClick={() => {
+                    setCreateSheetOpen(false);
+                    setHistoryTab('active');
+                    setHistoryOpen(true);
+                  }}
+                >
+                  <span className="status-create-icon drafts">
+                    <FilePen size={22} aria-hidden />
+                  </span>
+                  <span className="status-create-copy">
+                    <span className="status-create-title-row">
+                      <strong>Story history</strong>
+                      {draftCount > 0 && (
+                        <span className="status-badge-count">{draftCount} waiting</span>
+                      )}
+                    </span>
+                    <small>
+                      {draftCount > 0
+                        ? 'Preview, edit, or publish scheduled'
+                        : 'Active, archived, and drafts'}
+                    </small>
+                  </span>
+                  <span className="status-create-arrow">
+                    <ChevronRight size={16} aria-hidden />
+                  </span>
+                </button>
+              </div>
+              <button
+                type="button"
+                className="status-create-cancel"
+                onClick={() => setCreateSheetOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {!uploading &&
+         !pendingQueue.length &&
+        !textComposerOpen &&
+        !createSheetOpen &&
+        !viewer &&
+        fabHost &&
+        createPortal(
+          <div className="status-fabs" aria-label="Create status">
+            <button
+              type="button"
+              className="status-fab text"
+              title="Text status"
+              aria-label="Text status"
+              onClick={() => setTextComposerOpen(true)}
+            >
+              <Pencil size={20} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="status-fab camera"
+              title="Add status"
+              aria-label="Add photo, video, or other status"
+              onClick={openCreateSheet}
+            >
+              <Camera size={24} aria-hidden />
+            </button>
+          </div>,
+          fabHost
+        )}
     </div>
   );
 });
@@ -512,7 +911,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 export default StoriesRail;
 
 /** Full-screen "Viewed by N" sheet, opened from the eye icon in StoryViewer. */
-function StoryViewersSheet({ viewerCount, viewers, onClose }) {
+function StoryViewersSheet({ viewerCount, viewers, viewersHidden, viewersHiddenReason, onClose }) {
   return (
     <div className="story-viewers-sheet-overlay" onClick={onClose}>
       <div className="story-viewers-sheet" onClick={(e) => e.stopPropagation()}>
@@ -523,7 +922,11 @@ function StoryViewersSheet({ viewerCount, viewers, onClose }) {
           </button>
         </div>
         <div className="story-viewers-sheet-list">
-          {viewers.length === 0 ? (
+          {viewersHidden ? (
+            <p className="empty-hint">
+              {viewersHiddenReason || 'Viewer identities are hidden while "View stories anonymously" is on'}
+            </p>
+          ) : viewers.length === 0 ? (
             <p className="empty-hint">No views yet</p>
           ) : (
             viewers.map((v) => (
@@ -532,8 +935,9 @@ function StoryViewersSheet({ viewerCount, viewers, onClose }) {
                 <span className="story-viewers-sheet-name">{v.username}</span>
                 <span className="story-viewers-sheet-time">
                   {new Date(v.viewedAt).toLocaleTimeString([], {
-                    hour: '2-digit',
+                    hour: 'numeric',
                     minute: '2-digit',
+                    hour12: true,
                   })}
                 </span>
               </div>
@@ -548,10 +952,14 @@ function StoryViewersSheet({ viewerCount, viewers, onClose }) {
 function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError }) {
   const [viewerCount, setViewerCount] = useState(0);
   const [viewers, setViewers] = useState([]);
+  const [viewersHidden, setViewersHidden] = useState(false);
+  const [viewersHiddenReason, setViewersHiddenReason] = useState('');
   const [viewersOpen, setViewersOpen] = useState(false);
   const [index, setIndex] = useState(startIndex || 0);
   const [mediaUrl, setMediaUrl] = useState(null);
   const [blockedReason, setBlockedReason] = useState('');
+  const [loadPhase, setLoadPhase] = useState(''); // '', 'download', 'decrypt'
+  const [downloadPct, setDownloadPct] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
   const replyInputRef = useRef(null);
@@ -575,6 +983,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [gifQuery, setGifQuery] = useState('');
   const [gifResults, setGifResults] = useState([]);
   const [gifLoading, setGifLoading] = useState(false);
+  const [saveHighlightOpen, setSaveHighlightOpen] = useState(false);
+  const [mediaBlob, setMediaBlob] = useState(null);
 
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
@@ -582,63 +992,75 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   useEffect(() => {
     const abortController = new AbortController();
     let objectUrl;
+    let usedCache = false;
 
-    // Reset state for the new story immediately
     setMediaUrl(null);
+    setMediaBlob(null);
     setBlockedReason('');
+    setLoadPhase('');
+    setDownloadPct(null);
+    setSaveHighlightOpen(false);
 
-    if (!isOwn) {
+    // The view-once "consumed" flag is written by this /view ping. It must fire
+    // AFTER the media has actually loaded — never before or concurrently — or a
+    // view-once story can consume itself before its very first viewer sees it.
+    function pingViewed() {
+      if (isOwn) return;
       client.post(`/stories/${story.id}/view`).catch(() => {
         // Non-critical — a failed view-ping shouldn't block story viewing.
       });
     }
 
     (async () => {
-      if (story.sealed) {
-        const unlocked = unlockStoryKey(story, currentUserId);
-        const ivB64 = unlocked?.ivB64 || story.contentIv;
-
-        if (!unlocked?.keyB64 || !ivB64) {
-          setBlockedReason('Sealed story — no envelope for your keys');
-          return;
-        }
-
-        const res = await client.get(`/stories/${story.id}/media`, {
-          responseType: 'arraybuffer',
-          signal: abortController.signal, // Kills the request on unmount
-        });
-
-        // Bail out before heavy decryption if the user already skipped
-        if (abortController.signal.aborted) return;
-
-        const cipherBytes = new Uint8Array(res.data);
-        const plain = await aesGcmDecryptBytes(cipherBytes, unlocked.keyB64, ivB64);
-
-        if (abortController.signal.aborted) return;
-
-        objectUrl = URL.createObjectURL(
-          new Blob([plain], { type: story.mimetype || 'application/octet-stream' })
-        );
-        setMediaUrl(objectUrl);
+      const cacheKey = cacheKeyForStory(story);
+      const cachedUrl = storyMediaCache.get(cacheKey);
+      const cachedBlob = storyMediaBlobCache.get(cacheKey);
+      if (cachedUrl && cachedBlob) {
+        usedCache = true;
+        setMediaUrl(cachedUrl);
+        setMediaBlob(cachedBlob);
+        pingViewed();
         return;
       }
 
-      // Non-sealed path
-      const res = await client.get(`/stories/${story.id}/media`, {
-        responseType: 'blob',
+      if (story.sealed) {
+        const unlocked = unlockStoryKey(story, currentUserId);
+        const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
+        if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
+          setBlockedReason('Sealed story — no envelope for your keys');
+          return;
+        }
+      }
+
+      setLoadPhase('download');
+      const blob = await resolveStoryMediaBlob(story, currentUserId, {
         signal: abortController.signal,
+        onDownloadProgress: (evt) => {
+          if (!evt.total) return;
+          setDownloadPct(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
+        },
       });
 
       if (abortController.signal.aborted) return;
 
-      objectUrl = URL.createObjectURL(res.data);
-      setMediaUrl(objectUrl);
+      setLoadPhase('decrypt');
+      setDownloadPct(100);
+      // Decrypt already finished inside resolve — brief paint so UI can show phase.
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      if (abortController.signal.aborted) return;
 
+      objectUrl = storyMediaCache.get(cacheKey) || URL.createObjectURL(blob);
+      if (!storyMediaCache.has(cacheKey)) storyMediaCache.set(cacheKey, objectUrl);
+      setMediaUrl(objectUrl);
+      setMediaBlob(blob);
+      setLoadPhase('');
+      pingViewed();
     })().catch((err) => {
-      // Axios >=0.22 throws 'CanceledError'. Native fetch throws 'AbortError'.
       if (err.name === 'CanceledError' || err.name === 'AbortError') return;
 
       setMediaUrl(null);
+      setMediaBlob(null);
+      setLoadPhase('');
 
       if (story.sealed) {
         const status = err?.response?.status;
@@ -646,22 +1068,57 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           setBlockedReason('Sealed story — no envelope for your keys');
         } else if (status === 404) {
           setBlockedReason('Story media is missing on the server');
+        } else if (err.code === 'ECONNABORTED') {
+          setBlockedReason('Status download timed out — try again');
+        } else if (err.message?.includes('No decryption key')) {
+          setBlockedReason('Sealed story — no envelope for your keys');
         } else {
           setBlockedReason('Could not decrypt this sealed story');
         }
       } else {
-        // Fixes the silent failure for public stories
-        setBlockedReason('Failed to load story media');
+        setBlockedReason(
+          err.code === 'ECONNABORTED'
+            ? 'Status download timed out — try again'
+            : 'Failed to load story media'
+        );
       }
     });
 
     return () => {
-      abortController.abort(); // Triggers the cancellation across the board
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      abortController.abort();
+      if (objectUrl && !usedCache) {
+        const key = cacheKeyForStory(story);
+        if (storyMediaCache.get(key) !== objectUrl) URL.revokeObjectURL(objectUrl);
+      }
     };
-
-    // Only depend on primitives to prevent infinite re-render loops
   }, [story.id, story.sealed, story.contentIv, story.mimetype, currentUserId]);
+
+  // Prefetch next 1–2 stories so advancing feels instant.
+  useEffect(() => {
+    const controllers = [];
+    const toPrefetch = [group.items[index + 1], group.items[index + 2]].filter(Boolean);
+
+    (async () => {
+      for (const nextStory of toPrefetch) {
+        if (!viewerCanSeeStory(nextStory, currentUserId)) continue;
+        const nextCacheKey = cacheKeyForStory(nextStory);
+        if (storyMediaBlobCache.has(nextCacheKey)) continue;
+        const abortController = new AbortController();
+        controllers.push(abortController);
+        try {
+          await resolveStoryMediaBlob(nextStory, currentUserId, {
+            signal: abortController.signal,
+          });
+        } catch {
+          // Best-effort prefetch
+        }
+      }
+    })();
+
+    return () => {
+      for (const c of controllers) c.abort();
+    };
+  }, [index, group.items, currentUserId]);
 
   useEffect(() => {
     if (!isOwn) return;
@@ -680,6 +1137,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           .then((res) => {
             setViewerCount(res.data?.data?.viewerCount || 0);
             setViewers(res.data?.data?.viewers || []);
+            setViewersHidden(Boolean(res.data?.data?.viewersHidden));
+            setViewersHiddenReason(res.data?.data?.viewersHiddenReason || '');
           })
           .catch(() => {});
       }, 8000);
@@ -689,6 +1148,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     function onViewed(payload) {
       if (String(payload.storyId) !== String(story.id)) return;
       setViewerCount(payload.viewerCount);
+      if (payload.anonymous || !payload.viewer) return; // count only, identity withheld
       setViewers((prev) => [
         { ...payload.viewer, viewedAt: payload.viewedAt },
         ...prev.filter((v) => v.id !== payload.viewer.id),
@@ -707,12 +1167,21 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         if (cancelled) return;
         setViewerCount(res.data?.data?.viewerCount || 0);
         setViewers(res.data?.data?.viewers || []);
+        setViewersHidden(Boolean(res.data?.data?.viewersHidden));
+        setViewersHiddenReason(res.data?.data?.viewersHiddenReason || '');
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [story.id, isOwn]);
+
+   // Keeps the "Posted … / Expires in …" label ticking for everyone.
+  const [, forceMetaTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceMetaTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     function onKey(e) {
@@ -1075,23 +1544,70 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     () => (reactionQuery.trim() ? searchEmojis(reactionQuery, 60) : COMPOSER_EMOJIS.slice(0, 60)),
     [reactionQuery]
   );
-
   function insertEmoji(emoji) {
     setReplyText((t) => t + emoji);
   }
 
-  return (
+  // Single tap left/right navigates; a second tap within the window is
+  // treated as a double-tap "like" instead, so the pending nav is cancelled.
+  const mediaClickTimerRef = useRef(null);
+
+  function handleMediaClick(e) {
+    if (mediaClickTimerRef.current) {
+      clearTimeout(mediaClickTimerRef.current);
+      mediaClickTimerRef.current = null;
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const tappedRight = e.clientX - rect.left > rect.width / 2;
+
+    mediaClickTimerRef.current = setTimeout(() => {
+      mediaClickTimerRef.current = null;
+      if (tappedRight) {
+        if (index < group.items.length - 1) {
+          setIndex((i) => i + 1);
+        } else {
+          onClose(); // tapped right on the last story — go outside
+        }
+      } else if (index > 0) {
+        setIndex((i) => i - 1);
+      }
+      // tapping left on the first story is a no-op
+    }, 250);
+  }
+
+  function handleMediaDoubleClick() {
+    if (mediaClickTimerRef.current) {
+      clearTimeout(mediaClickTimerRef.current);
+      mediaClickTimerRef.current = null;
+    }
+    if (!isOwn) handleReact('❤️');
+  }
+
+  useEffect(() => {
+    return () => {
+      if (mediaClickTimerRef.current) clearTimeout(mediaClickTimerRef.current);
+    };
+  }, []);
+
+  return createPortal(
     <div className="story-viewer-overlay" onClick={onClose}>
       <div className="story-viewer" onClick={(e) => e.stopPropagation()}>
         <div className="story-viewer-top">
-          <div className="story-viewer-user">
+           <div className="story-viewer-user">
             <UserAvatar
               userId={group.user?.id}
               name={group.user?.username}
               hasAvatar={group.user?.hasAvatar}
               size="sm"
             />
-            <span>{group.user?.username}</span>
+            <div className="story-viewer-user-text">
+              <span>{group.user?.username}</span>
+              <span className="story-viewer-user-meta">
+                {formatElapsed(story.createdAt)}
+                {isOwn ? ` · ${formatRemaining(story.expiresAt)}` : ''}
+              </span>
+            </div>
             {story.sealed ? <span className="story-sealed-badge">Sealed X5</span> : null}
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
@@ -1103,9 +1619,10 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             <span key={s.id} className={i === index ? 'on' : ''} />
           ))}
         </div>
-        <div
+               <div
           className="story-viewer-media"
-          onDoubleClick={() => !isOwn && handleReact('❤️')}
+          onClick={handleMediaClick}
+          onDoubleClick={handleMediaDoubleClick}
         >
           {blockedReason && (
             <div className="story-decrypt-error" role="alert">
@@ -1116,7 +1633,13 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           {!blockedReason && !mediaUrl && (
             <div className="story-media-loading" aria-live="polite">
               <div className="skeleton skeleton-line story-media-loading-bar" />
-              <p className="empty-hint">Decrypting…</p>
+              <p className="empty-hint">
+                {loadPhase === 'decrypt'
+                  ? 'Decrypting…'
+                  : downloadPct != null
+                    ? `Downloading… ${downloadPct}%`
+                    : 'Loading status…'}
+              </p>
             </div>
           )}
           {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
@@ -1136,6 +1659,19 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
                   <Eye size={16} strokeWidth={2} />
                   <span>{viewerCount}</span>
                 </button>
+                <button
+                  type="button"
+                  className="story-highlight-btn"
+                  disabled={!mediaUrl}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    setSaveHighlightOpen(true);
+                  }}
+                >
+                  <BookmarkPlus size={16} strokeWidth={2} />
+                  <span>Highlight</span>
+                </button>
                 <button type="button" className="story-delete-btn" onClick={handleDelete}>
                   Delete
                 </button>
@@ -1147,11 +1683,22 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           <StoryViewersSheet
             viewerCount={viewerCount}
             viewers={viewers}
+            viewersHidden={viewersHidden}
+            viewersHiddenReason={viewersHiddenReason}
             onClose={() => setViewersOpen(false)}
           />
         )}
-
-        {!isOwn && story.allowReplies !== false && (
+        {isOwn && saveHighlightOpen && (
+          <HighlightPickerSheet
+            open={saveHighlightOpen}
+            onClose={() => setSaveHighlightOpen(false)}
+            onError={onError}
+            mediaUrl={mediaUrl}
+            mediaBlob={mediaBlob}
+            story={story}
+          />
+        )}
+       {!isOwn && story.allowReplies !== false && (
           <form
             className="story-reply-bar"
             onSubmit={(e) => {
@@ -1159,69 +1706,104 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               handleSendReply();
             }}
           >
-            <div className="story-reply-input-wrap">
-              <textarea
-                ref={replyInputRef}
-                rows={1}
-                value={replyText}
-                onChange={(e) => {
-                  setReplyText(e.target.value);
-                  autoGrow(e.target);
-                }}
-                onKeyDown={handleReplyKeyDown}
-                placeholder={`Reply to ${group.user?.username}…`}
-                disabled={sendingReply}
-              />
+            <input
+              ref={replyFileInputRef}
+              type="file"
+              accept="image/*,video/*,audio/*"
+              hidden
+              onChange={handleReplyFileChange}
+            />
+            <div className="story-reply-row-main">
               <button
                 type="button"
-                className={`story-emoji-btn ${emojiPickerOpen ? 'open' : ''}`}
-                aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Add emoji to message'}
+                className="story-icon-btn"
+                aria-label="Attach media"
+                disabled={sendingReply || replyRecording}
+                onClick={() => replyFileInputRef.current?.click()}
+              >
+                <Paperclip size={18} strokeWidth={2} />
+              </button>
+
+              <div className="story-reply-input-wrap">
+                <textarea
+                  ref={replyInputRef}
+                  rows={1}
+                  value={replyText}
+                  onChange={(e) => {
+                    setReplyText(e.target.value);
+                    autoGrow(e.target);
+                  }}
+                  onKeyDown={handleReplyKeyDown}
+                  placeholder={
+                    replyRecording
+                      ? `Recording ${String(Math.floor(replyRecordSeconds / 60)).padStart(2, '0')}:${String(replyRecordSeconds % 60).padStart(2, '0')}…`
+                      : `Reply to ${group.user?.username}…`
+                  }
+                  disabled={sendingReply || replyRecording}
+                />
+                <button
+                  type="button"
+                  className={`story-emoji-btn ${emojiPickerOpen ? 'open' : ''}`}
+                  aria-label={emojiPickerOpen ? 'Close emoji picker' : 'Add emoji to message'}
+                  onClick={() => {
+                    setEmojiPickerOpen((v) => !v);
+                    setReactionPickerOpen(false);
+                    setGifPickerOpen(false);
+                  }}
+                >
+                  {emojiPickerOpen ? <X size={17} strokeWidth={2.2} /> : <Smile size={17} strokeWidth={2} />}
+                </button>
+              </div>
+
+              {replyText.trim() ? (
+                <button
+                  type="submit"
+                  disabled={sendingReply}
+                  aria-label="Send reply"
+                  className="story-reply-send ready"
+                >
+                  {sendingReply ? <span className="story-reply-spinner" /> : <Send size={16} strokeWidth={2.2} />}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={`story-icon-btn ${replyRecording ? 'recording' : ''}`}
+                  aria-label={replyRecording ? 'Stop recording' : 'Record a voice reply'}
+                  disabled={sendingReply}
+                  onClick={replyRecording ? stopReplyVoiceRecording : startReplyVoiceRecording}
+                >
+                  {replyRecording ? <Square size={17} strokeWidth={2.2} /> : <Mic size={18} strokeWidth={2} />}
+                </button>
+              )}
+
+              <button
+                type="button"
+                className={`story-icon-btn ${reactionPickerOpen ? 'open' : ''}`}
+                aria-label={reactionPickerOpen ? 'Close reactions' : 'Send a reaction'}
+                disabled={reacting || replyRecording}
                 onClick={() => {
-                  setEmojiPickerOpen((v) => !v);
+                  setReactionPickerOpen((v) => !v);
+                  setEmojiPickerOpen(false);
+                  setGifPickerOpen(false);
+                }}
+              >
+                {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
+              </button>
+
+              <button
+                type="button"
+                className={`story-icon-btn story-gif-btn ${gifPickerOpen ? 'open' : ''}`}
+                aria-label={gifPickerOpen ? 'Close GIF picker' : 'Send a GIF'}
+                disabled={sendingReply || replyRecording}
+                onClick={() => {
+                  setGifPickerOpen((v) => !v);
+                  setEmojiPickerOpen(false);
                   setReactionPickerOpen(false);
                 }}
               >
-                {emojiPickerOpen ? <X size={17} strokeWidth={2.2} /> : <Smile size={17} strokeWidth={2} />}
+                {gifPickerOpen ? <X size={17} strokeWidth={2.2} /> : 'GIF'}
               </button>
             </div>
-
-            <button
-              type="submit"
-              disabled={sendingReply || !replyText.trim()}
-              aria-label="Send reply"
-              className={`story-reply-send ${replyText.trim() ? 'ready' : ''}`}
-            >
-              {sendingReply ? <span className="story-reply-spinner" /> : <Send size={16} strokeWidth={2.2} />}
-            </button>
-
-            <button
-              type="button"
-              className={`story-heart-btn ${reactionPickerOpen ? 'open' : ''}`}
-              aria-label={reactionPickerOpen ? 'Close reactions' : 'Send a reaction'}
-              disabled={reacting}
-              onClick={() => {
-                setReactionPickerOpen((v) => !v);
-                setEmojiPickerOpen(false);
-                setGifPickerOpen(false);
-              }}
-            >
-              {reactionPickerOpen ? <X size={17} strokeWidth={2.2} /> : '❤️'}
-            </button>
-
-            <button
-              type="button"
-              className={`story-heart-btn ${gifPickerOpen ? 'open' : ''}`}
-              aria-label={gifPickerOpen ? 'Close GIF picker' : 'Send a GIF'}
-              disabled={sendingReply}
-              onClick={() => {
-                setGifPickerOpen((v) => !v);
-                setEmojiPickerOpen(false);
-                setReactionPickerOpen(false);
-              }}
-              style={{ fontSize: 11, fontWeight: 800 }}
-            >
-              {gifPickerOpen ? <X size={17} strokeWidth={2.2} /> : 'GIF'}
-            </button>
 
             {emojiPickerOpen && (
               <div className="story-emoji-picker anchored-left">
@@ -1320,18 +1902,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
                       style={{ padding: 0, border: 0, borderRadius: 8, overflow: 'hidden', cursor: 'pointer' }}
                       disabled={sendingReply}
                       onClick={async () => {
-  try {
-    const resp = await fetch(gif.url);
-    if (!resp.ok) throw new Error('Could not download GIF');
-    const blob = await resp.blob();
-    const file = new File([blob], `gif-${Date.now()}.gif`, {
-      type: blob.type || 'image/gif',
-    });
-    await sendStoryReplyMedia(file, { mediaKind: 'gif' });
-  } catch (err) {
-    onError?.(err.message || 'Failed to send GIF — try again');
-  }
-}}
+                      try {
+                        const resp = await fetch(gif.url);
+                        if (!resp.ok) throw new Error('Could not download GIF');
+                        const blob = await resp.blob();
+                        const file = new File([blob], `gif-${Date.now()}.gif`, {
+                          type: blob.type || 'image/gif',
+                        });
+                        await sendStoryReplyMedia(file, { mediaKind: 'gif' });
+                      } catch (err) {
+                        onError?.(err.message || 'Failed to send GIF — try again');
+                      }
+                    }}
                     >
                       <img
                         src={gif.previewUrl}
@@ -1360,21 +1942,42 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         }}
         onConfirm={confirmDeleteStory}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }
 
-function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
-  const [preset, setPreset] = useState(DEFAULT_TTL_MS);
-  const [customMode, setCustomMode] = useState(false);
-  const [customValue, setCustomValue] = useState(24);
-  const [customUnit, setCustomUnit] = useState('hours');
-  const [allowReplies, setAllowReplies] = useState(true);
+function StoryComposer({
+  file,
+  previewUrl,
+  onCancel,
+  onConfirm,
+  uploading,
+  uploadPhase,
+  batchProgress,
+  queueLength = 1,
+  error,
+  onError,
+}) {
+  const opts = useStoryPublishOptions(DEFAULT_TTL_MS);
+  const [showPreview, setShowPreview] = useState(false);
+  const [localError, setLocalError] = useState('');
   const imagePreviewRef = useRef(null);
   const videoPreviewRef = useRef(null);
   const audioPreviewRef = useRef(null);
 
-  const unitMultiplier = { minutes: 60 * 1000, hours: 60 * 60 * 1000, days: 24 * 60 * 60 * 1000 };
+  const busyPostLabel =
+    uploadPhase === 'compress'
+      ? 'Compressing video…'
+      : uploadPhase === 'upload'
+        ? 'Uploading…'
+        : 'Encrypting & posting…';
+
+  const displayError = error || localError;
+
+  useEffect(() => {
+    setLocalError('');
+  }, [file]);
 
   useEffect(() => {
     let safePreviewUrl = '';
@@ -1401,111 +2004,71 @@ function StoryComposer({ file, previewUrl, onCancel, onConfirm, uploading }) {
     };
   }, [previewUrl]);
 
-  function computeTtlMs() {
-    if (customMode) {
-      const raw = Number(customValue) || 0;
-      const ms = raw * (unitMultiplier[customUnit] || unitMultiplier.hours);
-      return Math.min(Math.max(ms, MIN_TTL_MS), MAX_TTL_MS);
-    }
-    return preset;
+  function reportError(message) {
+    const text = String(message || 'Could not post story');
+    setLocalError(text);
+    onError?.(text);
   }
 
-  return (
-    <div className="story-composer-overlay" onClick={onCancel}>
+  async function submit(status) {
+    if (uploading) return;
+    setLocalError('');
+    try {
+      const options = opts.buildOptions(status);
+      await onConfirm?.(opts.computeTtlMs(), opts.allowReplies, options);
+    } catch (err) {
+      reportError(err?.message || 'Could not save story');
+    }
+  }
+
+  const isVideoFile =
+    file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name || '');
+
+  return createPortal(
+    <div className="story-composer-overlay" onClick={uploading ? undefined : onCancel}>
       <div className="story-composer" onClick={(e) => e.stopPropagation()}>
         <div className="story-composer-top">
-          <span>New story</span>
-          <button type="button" onClick={onCancel} aria-label="Cancel">
+           <span>
+            {queueLength > 1
+              ? batchProgress
+                ? `Posting ${batchProgress.done + 1} of ${batchProgress.total}…`
+                : `New story (${queueLength} selected)`
+              : 'New story'}
+          </span>
+          <button type="button" onClick={onCancel} aria-label="Cancel" disabled={uploading}>
             ×
           </button>
         </div>
 
         <div className="story-composer-preview">
           {file.type.startsWith('image/') && <img ref={imagePreviewRef} alt="" />}
-          {file.type.startsWith('video/') && <video ref={videoPreviewRef} controls />}
+          {isVideoFile && <video ref={videoPreviewRef} controls playsInline />}
           {file.type.startsWith('audio/') && <audio ref={audioPreviewRef} controls />}
         </div>
 
-        <div className="story-composer-ttl">
-          <p className="story-composer-ttl-label">Visible for</p>
-          <div className="story-composer-ttl-presets" role="group" aria-label="Story duration">
-            {TTL_PRESETS.map((p) => (
-              <button
-                key={p.ms}
-                type="button"
-                className={`story-ttl-preset ${!customMode && preset === p.ms ? 'active' : ''}`}
-                disabled={uploading}
-                onClick={() => {
-                  setCustomMode(false);
-                  setPreset(p.ms);
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              className={`story-ttl-preset ${customMode ? 'active' : ''}`}
-              disabled={uploading}
-              onClick={() => setCustomMode(true)}
-            >
-              Custom…
-            </button>
-          </div>
+        {displayError ? <p className="story-composer-error" role="alert">{displayError}</p> : null}
 
-          {customMode && (
-            <div className="story-composer-custom-row">
-              <input
-                type="number"
-                min="1"
-                value={customValue}
-                disabled={uploading}
-                onChange={(e) => setCustomValue(e.target.value)}
-                aria-label="Custom duration value"
-              />
-              <select
-                value={customUnit}
-                disabled={uploading}
-                onChange={(e) => setCustomUnit(e.target.value)}
-                aria-label="Custom duration unit"
-              >
-                <option value="minutes">Minutes</option>
-                <option value="hours">Hours</option>
-                <option value="days">Days</option>
-              </select>
-            </div>
-          )}
-          <p className="story-composer-ttl-hint">
-            Min 15 minutes · max 7 days. Media is sealed before upload.
-          </p>
-        </div>
+        <StoryPublishControls
+          opts={opts}
+          busy={uploading}
+          canSubmit={!uploading}
+          busyLabel={busyPostLabel}
+          onPreview={() => setShowPreview(true)}
+          onDraft={() => submit('draft')}
+          onSchedule={() => submit('scheduled')}
+          onPost={() => submit('published')}
+        />
 
-        <label className="story-composer-ttl" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={allowReplies}
-            disabled={uploading}
-            onChange={(e) => setAllowReplies(e.target.checked)}
-          />
-          <span className="story-composer-ttl-label" style={{ margin: 0 }}>
-            Allow replies to this story
-          </span>
-        </label>
-
-        <div className="story-composer-actions">
+        <div className="story-composer-actions" style={{ paddingTop: 0 }}>
           <button type="button" className="story-composer-cancel" onClick={onCancel} disabled={uploading}>
             Cancel
           </button>
-          <button
-            type="button"
-            className="story-composer-post"
-            disabled={uploading}
-            onClick={() => onConfirm(computeTtlMs(), allowReplies)}
-          >
-            {uploading ? 'Encrypting & posting…' : 'Post story'}
-          </button>
         </div>
       </div>
-    </div>
+      {showPreview && (
+        <StoryLocalPreview file={file} previewUrl={previewUrl} onClose={() => setShowPreview(false)} />
+      )}
+    </div>,
+    document.body
   );
 }
