@@ -11,7 +11,6 @@
   vertical-align: middle;
 }
 
-/* QuantumAI companion: a focused third pane, not a detached dashboard card. */
 .quantum-ai-panel {
   --ai-panel-fg: var(--text-primary);
   --ai-panel-muted: var(--text-secondary);
@@ -91,6 +90,7 @@
   color: var(--ai-panel-fg);
   border-left-color: var(--ai-panel-border);
 }
+
 .quantum-ai-panel[data-ai-bg="vellum"]::before {
   background:
     radial-gradient(
@@ -3666,7 +3666,24 @@ input:focus-visible,
   border-radius: var(--radius-xl);
   box-shadow: none;
   overflow: hidden;
+  /* Own stacking context so the wallpaper layer (z-index:-1) sits above the
+     pane ground but below header/list/composer, clipped by the rounded pane. */
+  isolation: isolate;
   transition: border-color var(--transition-theme);
+}
+
+/* Static wallpaper layer behind header/list/composer. Kept off the
+   scrolling, motion-animated .message-list so the image always covers the
+   pane instead of rendering at a stale size/offset. */
+.chat-wallpaper-layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--chat-wallpaper);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* Header */
@@ -3885,11 +3902,7 @@ input:focus-visible,
   flex-direction: column;
   gap: 10px;
   align-items: stretch;
-  background: var(--chat-wallpaper, transparent);
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  transition: background 0.2s ease;
+  background: transparent;
 }
 
 .message-list > .message-item,
