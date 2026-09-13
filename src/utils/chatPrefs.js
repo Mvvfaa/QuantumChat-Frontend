@@ -1,11 +1,85 @@
 const MUTE_PREFIX = 'qc_muted_chats_';
 const ARCHIVE_PREFIX = 'qc_archived_chats_';
 const DRAFT_PREFIX = 'qc_draft_';
+const DRAFT_DB_NAME = 'quantumchat-drafts';
+const DRAFT_DB_VERSION = 1;
+const DRAFT_KEY_STORE = 'keys';
+const DRAFT_VALUE_STORE = 'values';
 const INFO_PANEL_KEY = 'qc_info_panel_open';
 const LAST_REACTION_KEY = 'qc_last_quick_reaction';
 
 function draftKey(userId, conversationKey) {
   return `${DRAFT_PREFIX}${userId}_${conversationKey}`;
+}
+
+function removeLegacyDraft(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Ignore storage cleanup errors.
+  }
+}
+
+function openDraftDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable'));
+      return;
+    }
+    const request = indexedDB.open(DRAFT_DB_NAME, DRAFT_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(DRAFT_KEY_STORE)) db.createObjectStore(DRAFT_KEY_STORE);
+      if (!db.objectStoreNames.contains(DRAFT_VALUE_STORE)) db.createObjectStore(DRAFT_VALUE_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Could not open draft storage'));
+  });
+}
+
+async function getDraftKey(db) {
+  const existing = await new Promise((resolve, reject) => {
+    const request = db.transaction(DRAFT_KEY_STORE, 'readonly').objectStore(DRAFT_KEY_STORE).get('device');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  if (existing) return existing;
+
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+  await new Promise((resolve, reject) => {
+    const request = db.transaction(DRAFT_KEY_STORE, 'readwrite').objectStore(DRAFT_KEY_STORE).put(key, 'device');
+    request.onsuccess = resolve;
+    request.onerror = () => reject(request.error);
+  });
+  return key;
+}
+
+function readDraftValue(db, key) {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(DRAFT_VALUE_STORE, 'readonly').objectStore(DRAFT_VALUE_STORE).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function writeDraftValue(db, key, value) {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(DRAFT_VALUE_STORE, 'readwrite').objectStore(DRAFT_VALUE_STORE).put(value, key);
+    request.onsuccess = resolve;
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function deleteDraftValue(db, key) {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(DRAFT_VALUE_STORE, 'readwrite').objectStore(DRAFT_VALUE_STORE).delete(key);
+    request.onsuccess = resolve;
+    request.onerror = () => reject(request.error);
+  });
 }
 
 function readList(prefix, userId) {
@@ -78,26 +152,52 @@ export function toggleArchiveChat(userId, conversationKey) {
   return archiveChat(userId, conversationKey);
 }
 
-export function getChatDraft(userId, conversationKey) {
+export async function getChatDraft(userId, conversationKey) {
   if (!userId || !conversationKey) return '';
+  let db;
   try {
-    return localStorage.getItem(draftKey(userId, conversationKey)) || '';
+    const key = draftKey(userId, conversationKey);
+    removeLegacyDraft(key);
+    db = await openDraftDb();
+    const record = await readDraftValue(db, key);
+    if (!record?.ciphertext || !record?.iv) return '';
+    const encryptionKey = await getDraftKey(db);
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: record.iv },
+      encryptionKey,
+      record.ciphertext,
+    );
+    return new TextDecoder().decode(plaintext);
   } catch {
     return '';
+  } finally {
+    db?.close();
   }
 }
 
-export function saveChatDraft(userId, conversationKey, text) {
+export async function saveChatDraft(userId, conversationKey, text) {
   if (!userId || !conversationKey) return;
+  let db;
   try {
     const key = draftKey(userId, conversationKey);
-    if (String(text || '').length > 0) {
-      localStorage.setItem(key, String(text));
-    } else {
-      localStorage.removeItem(key);
+    removeLegacyDraft(key);
+    db = await openDraftDb();
+    if (!String(text || '').length) {
+      await deleteDraftValue(db, key);
+      return;
     }
+    const encryptionKey = await getDraftKey(db);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      encryptionKey,
+      new TextEncoder().encode(String(text)),
+    );
+    await writeDraftValue(db, key, { ciphertext, iv });
   } catch {
     // Ignore storage errors; sending messages must still work.
+  } finally {
+    db?.close();
   }
 }
 
