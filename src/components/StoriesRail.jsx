@@ -27,6 +27,7 @@ import HighlightPickerSheet from './HighlightPickerSheet.jsx';
 import StoryHistoryPanel from './StoryHistoryPanel.jsx';
 import { StoryLocalPreview, StoryPublishControls, useStoryPublishOptions } from './StoryPublishControls.jsx';
 import TextStoryComposer from './TextStoryComposer.jsx';
+import { useToast } from './ToastProvider.jsx';
 import UserAvatar from './UserAvatar.jsx';
 import { compressVideo } from '../crypto/videoCompressor.js';
 const MAX_STORY_SECONDS = 60;
@@ -950,6 +951,7 @@ function StoryViewersSheet({ viewerCount, viewers, viewersHidden, viewersHiddenR
 }
 
 function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError }) {
+  const { showToast } = useToast();
   const [viewerCount, setViewerCount] = useState(0);
   const [viewers, setViewers] = useState([]);
   const [viewersHidden, setViewersHidden] = useState(false);
@@ -962,6 +964,8 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [downloadPct, setDownloadPct] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
+  const [replySentFlash, setReplySentFlash] = useState('');
+  const replySentTimerRef = useRef(null);
   const replyInputRef = useRef(null);
   const [reacting, setReacting] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -988,6 +992,12 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
   const story = group.items[index];
   const isOwn = String(group.user?.id) === String(currentUserId);
+
+  useEffect(() => {
+    return () => {
+      if (replySentTimerRef.current) clearTimeout(replySentTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const abortController = new AbortController();
@@ -1221,6 +1231,16 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     }
   }
 
+  function notifyReplySent(message = 'Reply sent') {
+    if (replySentTimerRef.current) clearTimeout(replySentTimerRef.current);
+    setReplySentFlash(message);
+    showToast(message, 'success', 2500);
+    replySentTimerRef.current = setTimeout(() => {
+      setReplySentFlash('');
+      replySentTimerRef.current = null;
+    }, 2500);
+  }
+
   async function handleSendReply() {
     const text = replyText.trim();
     if (!text || sendingReply) return;
@@ -1259,6 +1279,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
       setReplyText('');
       if (replyInputRef.current) replyInputRef.current.style.height = 'auto';
+      notifyReplySent('Reply sent');
     } catch (err) {
       onError?.(err.response?.data?.error || err.message || 'Failed to send reply');
     } finally {
@@ -1368,6 +1389,17 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
       setGifPickerOpen(false);
       setGifQuery('');
       setGifResults([]);
+      const label =
+        mediaKind === 'voice'
+          ? 'Voice reply sent'
+          : mediaKind === 'gif'
+            ? 'GIF reply sent'
+            : mediaKind === 'image'
+              ? 'Photo reply sent'
+              : mediaKind === 'video'
+                ? 'Video reply sent'
+                : 'Reply sent';
+      notifyReplySent(label);
     } catch (err) {
       onError?.(err.response?.data?.error || err.message || 'Failed to send reply');
     } finally {
@@ -1706,6 +1738,11 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               handleSendReply();
             }}
           >
+            {replySentFlash ? (
+              <p className="story-reply-sent" role="status" aria-live="polite">
+                {replySentFlash}
+              </p>
+            ) : null}
             <input
               ref={replyFileInputRef}
               type="file"

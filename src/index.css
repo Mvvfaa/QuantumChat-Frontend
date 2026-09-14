@@ -10953,10 +10953,36 @@ body.theme-dark .text-story-chip:hover {
 }
 .story-reply-bar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   padding: 8px 14px;
   background: rgba(0,0,0,0.4);
+  position: relative;
+}
+
+.story-reply-sent {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+  color: #ecfdf5;
+  background: rgba(16, 185, 129, 0.28);
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  animation: storyReplySentIn 180ms ease both;
+}
+
+@keyframes storyReplySentIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .story-reply-input-wrap {
@@ -11019,7 +11045,6 @@ body.theme-dark .text-story-chip:hover {
 }
 .story-reply-bar {
   position: relative;
-  align-items: flex-end;
 }
 .story-heart-btn {
   width: 40px;
@@ -18996,7 +19021,7 @@ body.theme-dreamcloud {
   position: fixed;
   top: 20px;
   right: 20px;
-  z-index: 9999;
+  z-index: 12050; /* above story viewer / composers */
   display: flex;
   flex-direction: column;
   gap: 10px;
