@@ -94,10 +94,12 @@ import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../the
 import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
+  getChatDraft,
   getInfoPanelOpen,
   getLastQuickReaction,
   getMutedChatKeys,
   isChatMuted,
+  saveChatDraft,
   setInfoPanelOpen,
   setLastQuickReaction,
   toggleArchiveChat,
@@ -403,6 +405,18 @@ export default function Chat() {
   const [searchResults, setSearchResults] = useState(null); // null = not searching
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef(null);
+  const draftConversationKeyRef = useRef(null);
+  const draftReadyConversationKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (
+      !user?.id ||
+      !draftConversationKeyRef.current ||
+      draftReadyConversationKeyRef.current !== draftConversationKeyRef.current
+    ) return;
+    void saveChatDraft(user.id, draftConversationKeyRef.current, draft);
+  }, [draft, user?.id]);
+
   useEffect(() => {
     const mqMobile = window.matchMedia("(max-width: 768px)");
     const mqCompact = window.matchMedia("(max-width: 1023px)");
@@ -3265,7 +3279,15 @@ useEffect(() => {
     }
     setSelected(c);
     setError("");
+    draftConversationKeyRef.current = c.key;
+    draftReadyConversationKeyRef.current = null;
     setDraft("");
+    getChatDraft(user.id, c.key).then((savedDraft) => {
+      if (draftConversationKeyRef.current === c.key) {
+        draftReadyConversationKeyRef.current = c.key;
+        setDraft(savedDraft);
+      }
+    });
     setReplyTo(null);
     setEditingMessage(null);
     setShowEmojiPicker(false);
