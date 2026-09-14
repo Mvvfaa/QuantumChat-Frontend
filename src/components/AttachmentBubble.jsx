@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   attachmentIdOf,
   normalizeAttachment,
@@ -62,6 +63,43 @@ function DownloadIcon({ className }) {
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
     </svg>
+  );
+}
+
+function EyeIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+// Compact document row: file tile · name + "EXT · size" meta.
+function DocHeader({ ext, filename, size, onIconClick, iconLabel }) {
+  const tile = (
+    <>
+      <FileIcon className="attachment-doc-tile-icon" />
+      <span className="attachment-doc-tile-ext">{ext}</span>
+    </>
+  );
+  return (
+    <div className="attachment-doc-header">
+      {onIconClick ? (
+        <button type="button" className="attachment-doc-tile" onClick={onIconClick} aria-label={iconLabel}>
+          {tile}
+        </button>
+      ) : (
+        <span className="attachment-doc-tile" aria-hidden="true">{tile}</span>
+      )}
+      <span className="attachment-doc-info">
+        <span className="attachment-doc-name" title={filename}>{filename}</span>
+        <span className="attachment-doc-meta">
+          {ext}
+          {size ? ` · ${formatFileSize(size)}` : ''}
+        </span>
+      </span>
+    </div>
   );
 }
 
@@ -453,13 +491,24 @@ export default function AttachmentBubble({
             Done · remove
           </button>
         </div>
-        {viewerOpen ? (
+        {/* Portal to body: the message list/bubbles are transformed (motion),
+            which would trap this position:fixed overlay inside the chat pane. */}
+        {viewerOpen ? createPortal(
           <div className="lightbox-overlay" role="dialog" aria-modal="true" onClick={closeViewOnceViewer}>
-            <button type="button" className="lightbox-close" onClick={closeViewOnceViewer} aria-label="Close">
+            <button
+              type="button"
+              className="lightbox-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeViewOnceViewer();
+              }}
+              aria-label="Close"
+            >
               ✕
             </button>
             <img src={objectUrl} alt="View once photo" className="lightbox-image" onClick={(e) => e.stopPropagation()} />
-          </div>
+          </div>,
+          document.body,
         ) : null}
       </>
     );
@@ -516,32 +565,33 @@ export default function AttachmentBubble({
 
   if (kind === 'pdf' && objectUrl) {
     return (
-      <div className="attachment-doc">
-        <div className="attachment-doc-header">
-          <span className="attachment-type-badge">PDF</span>
-          <span className="attachment-filename-text">{attachment.filename}</span>
-          {attachment.size ? <span className="attachment-note">({formatFileSize(attachment.size)})</span> : null}
-        </div>
-        {pdfExpanded ? (
+      <div className={`attachment-doc${pdfExpanded ? ' is-expanded' : ''}`}>
+        <DocHeader
+          ext="PDF"
+          filename={attachment.filename}
+          size={attachment.size}
+          onIconClick={() => setPdfExpanded((v) => !v)}
+          iconLabel={pdfExpanded ? 'Hide PDF preview' : 'Preview PDF'}
+        />
+        {pdfExpanded && (
           <iframe
             className="attachment-pdf"
             src={objectUrl}
             title={attachment.filename}
             sandbox="allow-same-origin"
           />
-        ) : (
-          <button type="button" className="attachment-pdf-thumb" onClick={() => setPdfExpanded(true)}>
-            <FileIcon className="file-icon" />
-            <span>Preview PDF</span>
-          </button>
         )}
         <div className="attachment-doc-actions">
-          {!pdfExpanded && (
-            <button type="button" onClick={() => setPdfExpanded(true)}>
-              Preview
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setPdfExpanded((v) => !v)}
+            aria-expanded={pdfExpanded}
+          >
+            <EyeIcon className="attachment-doc-action-icon" />
+            {pdfExpanded ? 'Hide' : 'Preview'}
+          </button>
           <button type="button" onClick={handleDownload}>
+            <DownloadIcon className="attachment-doc-action-icon" />
             Download
           </button>
         </div>
@@ -552,13 +602,11 @@ export default function AttachmentBubble({
   if (kind === 'text' && (textPreview != null || objectUrl)) {
     return (
       <div className="attachment-doc">
-        <div className="attachment-doc-header">
-          <span className="attachment-type-badge">TXT</span>
-          <span className="attachment-filename-text">{attachment.filename}</span>
-        </div>
+        <DocHeader ext="TXT" filename={attachment.filename} size={attachment.size} />
         {textPreview != null && <pre className="attachment-text-preview">{textPreview}</pre>}
         <div className="attachment-doc-actions">
           <button type="button" onClick={handleDownload}>
+            <DownloadIcon className="attachment-doc-action-icon" />
             Download
           </button>
         </div>

@@ -94,10 +94,12 @@ import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../the
 import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
+  getChatDraft,
   getInfoPanelOpen,
   getLastQuickReaction,
   getMutedChatKeys,
   isChatMuted,
+  saveChatDraft,
   setInfoPanelOpen,
   setLastQuickReaction,
   toggleArchiveChat,
@@ -403,6 +405,18 @@ export default function Chat() {
   const [searchResults, setSearchResults] = useState(null); // null = not searching
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef(null);
+  const draftConversationKeyRef = useRef(null);
+  const draftReadyConversationKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (
+      !user?.id ||
+      !draftConversationKeyRef.current ||
+      draftReadyConversationKeyRef.current !== draftConversationKeyRef.current
+    ) return;
+    void saveChatDraft(user.id, draftConversationKeyRef.current, draft);
+  }, [draft, user?.id]);
+
   useEffect(() => {
     const mqMobile = window.matchMedia("(max-width: 768px)");
     const mqCompact = window.matchMedia("(max-width: 1023px)");
@@ -3265,7 +3279,15 @@ useEffect(() => {
     }
     setSelected(c);
     setError("");
+    draftConversationKeyRef.current = c.key;
+    draftReadyConversationKeyRef.current = null;
     setDraft("");
+    getChatDraft(user.id, c.key).then((savedDraft) => {
+      if (draftConversationKeyRef.current === c.key) {
+        draftReadyConversationKeyRef.current = c.key;
+        setDraft(savedDraft);
+      }
+    });
     setReplyTo(null);
     setEditingMessage(null);
     setShowEmojiPicker(false);
@@ -5733,7 +5755,7 @@ useEffect(() => {
       }
     }
     if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
-      vars['--chat-wallpaper'] = `url(${customWallpaperUrl})`;
+      vars['--chat-wallpaper'] = `url("${customWallpaperUrl}") center/cover no-repeat`;
     } else if (chatTheme.wallpaperId && chatTheme.wallpaperId !== 'none' && chatTheme.wallpaperId !== 'custom') {
       vars['--chat-wallpaper'] = getWallpaperBackground(chatTheme.wallpaperId);
     }
@@ -6145,7 +6167,15 @@ useEffect(() => {
             ? handleDrop
             : undefined
         }
+        style={selected ? themeStyle : undefined}
       >
+        {canChat && selected && themeStyle['--chat-wallpaper'] && (
+          <div
+            className="chat-wallpaper-layer"
+            data-wallpaper-fx={getWallpaperFx(chatTheme.wallpaperId) || undefined}
+            aria-hidden="true"
+          />
+        )}
         {!canChat && (
           <div className="key-unlock">
             <div className="key-unlock-card">
@@ -6621,12 +6651,10 @@ useEffect(() => {
                     className="message-list"
                     ref={messageListRef}
                     onScroll={handleScroll}
-                    data-wallpaper-fx={getWallpaperFx(chatTheme.wallpaperId) || undefined}
                     initial={{ opacity: 0, x: 12 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -12 }}
                     transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                    style={themeStyle}
                   >
                     {loadingOlder && (
                       <div className="load-older-hint">

@@ -1,4 +1,4 @@
-import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paperclip, Pencil, Send, Smile, Square, Type, X } from 'lucide-react';
+import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paperclip, Send, Smile, Square, Type, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
@@ -591,10 +591,6 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
   return (
     <div className="stories-rail">
-      <p className="stories-privacy-note">
-        Sealed stories use X5 envelopes so allowed contacts can decrypt; the server only stores ciphertext.
-      </p>
-
 
       <div className="story-add-wrap">
         <button
@@ -884,15 +880,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         fabHost &&
         createPortal(
           <div className="status-fabs" aria-label="Create status">
-            <button
-              type="button"
-              className="status-fab text"
-              title="Text status"
-              aria-label="Text status"
-              onClick={() => setTextComposerOpen(true)}
-            >
-              <Pencil size={20} aria-hidden />
-            </button>
+            {/* Single camera FAB — text status lives in its create sheet. */}
             <button
               type="button"
               className="status-fab camera"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BarChart2, Check } from 'lucide-react';
 import { secretboxOpen } from '../crypto/keys.js';
 import { resolveGroupAttachment } from '../crypto/voiceCache.js';
@@ -221,7 +222,9 @@ function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
           Done · remove
         </button>
       </div>
-      {viewerOpen ? (
+      {/* Portal to body: the message list/bubbles are transformed (motion),
+          which would trap this position:fixed overlay inside the chat pane. */}
+      {viewerOpen ? createPortal(
         <div
           className="lightbox-overlay"
           role="dialog"
@@ -234,7 +237,8 @@ function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
           <button
             type="button"
             className="lightbox-close"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setViewerOpen(false);
               burn();
             }}
@@ -248,7 +252,8 @@ function ViewOnceGroupFileCard({ payload, isMine, mediaKind, onBurnViewOnce }) {
             className="lightbox-image"
             onClick={(e) => e.stopPropagation()}
           />
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );
