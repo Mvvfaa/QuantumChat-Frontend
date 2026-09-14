@@ -20494,6 +20494,8 @@ body.theme-light .chat-screenshot-shield {
   font-size: 22px;
   width: 36px;
   height: 36px;
+  padding: 0;
+  flex-shrink: 0;
   border-radius: 50%;
   cursor: pointer;
   display: flex;
