@@ -1,4 +1,4 @@
-import { BookmarkPlus, Check, ImagePlus, Loader2, Plus, X } from 'lucide-react';
+import { BookmarkPlus, Check, ImagePlus, Loader2, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { addHighlightItem, createHighlight, fetchHighlightCoverBlob, listHighlights } from '../api/highlights.js';
@@ -80,7 +80,7 @@ export default function HighlightPickerSheet({ open, onClose, onError, onSaved, 
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
