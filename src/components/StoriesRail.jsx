@@ -1631,7 +1631,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             {story.sealed ? <span className="story-sealed-badge">Sealed X5</span> : null}
           </div>
           <button type="button" onClick={onClose} aria-label="Close">
-            ×
+            <X size={18} strokeWidth={2.4} aria-hidden />
           </button>
         </div>
         <div className="story-viewer-progress">
