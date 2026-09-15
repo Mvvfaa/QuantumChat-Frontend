@@ -1670,7 +1670,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               </p>
             </div>
           )}
-          {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
+          {mediaUrl && (story.mediaType === 'image' || story.mediaType === 'text') && <img src={mediaUrl} alt="" />}
           {mediaUrl && story.mediaType === 'video' && <video src={mediaUrl} autoPlay controls />}
           {mediaUrl && story.mediaType === 'audio' && <audio src={mediaUrl} autoPlay controls />}
           {burst && <span className="story-reaction-burst">{burst}</span>}
