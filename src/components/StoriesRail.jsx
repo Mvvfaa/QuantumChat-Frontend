@@ -1,4 +1,4 @@
-import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paperclip, Send, Smile, Square, Type, X } from 'lucide-react';
+import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paperclip, Pencil, Send, Smile, Square, Type, X } from 'lucide-react';
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
@@ -873,14 +873,22 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         )}
 
       {!uploading &&
-         !pendingQueue.length &&
+        !pendingQueue.length &&
         !textComposerOpen &&
         !createSheetOpen &&
         !viewer &&
         fabHost &&
         createPortal(
           <div className="status-fabs" aria-label="Create status">
-            {/* Single camera FAB — text status lives in its create sheet. */}
+            <button
+              type="button"
+              className="status-fab text"
+              title="Text status"
+              aria-label="Text status"
+              onClick={() => setTextComposerOpen(true)}
+            >
+              <Pencil size={20} aria-hidden />
+            </button>
             <button
               type="button"
               className="status-fab camera"
