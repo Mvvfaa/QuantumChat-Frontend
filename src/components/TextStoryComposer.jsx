@@ -321,12 +321,6 @@ export default function TextStoryComposer({ onCancel, onConfirm, uploading, onEr
           onPost={() => submit('published')}
           postLabel="Post status"
         />
-
-        <div className="story-composer-actions" style={{ paddingTop: 0 }}>
-          <button type="button" className="story-composer-cancel" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-        </div>
       </div>
       {previewFile && previewUrl && (
         <StoryLocalPreview

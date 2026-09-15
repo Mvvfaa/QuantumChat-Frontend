@@ -176,48 +176,46 @@ export function StoryPublishControls({
         <p className="story-composer-ttl-hint">Min 15 minutes · max 7 days. Media is sealed before upload.</p>
       </div>
 
-      <label className="story-composer-ttl story-composer-check">
-        <input
-          type="checkbox"
-          checked={opts.allowReplies}
-          disabled={busy}
-          onChange={(e) => opts.setAllowReplies(e.target.checked)}
-        />
-        <span className="story-composer-ttl-label" style={{ margin: 0 }}>
-          Allow replies to this story
-        </span>
-      </label>
-              <label className="story-composer-ttl story-composer-check">
-        <input
-          type="checkbox"
-          checked={opts.viewOnce}
-          disabled={busy}
-          onChange={(e) => opts.setViewOnce(e.target.checked)}
-        />
-        <span className="story-composer-ttl-label" style={{ margin: 0 }}>
-          View once — disappears for each viewer right after they open it
-        </span>
-      </label>
-      <div className="story-schedule-block">
+      <div className="story-composer-options">
         <label className="story-composer-check">
           <input
             type="checkbox"
-            checked={opts.scheduleMode}
+            checked={opts.allowReplies}
             disabled={busy}
-            onChange={(e) => opts.setScheduleMode(e.target.checked)}
+            onChange={(e) => opts.setAllowReplies(e.target.checked)}
           />
-          <span>Schedule for later</span>
+          <span>Allow replies to this story</span>
         </label>
-        {opts.scheduleMode && (
+        <label className="story-composer-check">
           <input
-            type="datetime-local"
-            className="story-schedule-input"
-            value={opts.scheduleLocal}
+            type="checkbox"
+            checked={opts.viewOnce}
             disabled={busy}
-            onChange={(e) => opts.setScheduleLocal(e.target.value)}
-            aria-label="Publish date and time"
+            onChange={(e) => opts.setViewOnce(e.target.checked)}
           />
-        )}
+          <span>View once — disappears for each viewer right after they open it</span>
+        </label>
+        <div className="story-schedule-block">
+          <label className="story-composer-check">
+            <input
+              type="checkbox"
+              checked={opts.scheduleMode}
+              disabled={busy}
+              onChange={(e) => opts.setScheduleMode(e.target.checked)}
+            />
+            <span>Schedule for later</span>
+          </label>
+          {opts.scheduleMode && (
+            <input
+              type="datetime-local"
+              className="story-schedule-input"
+              value={opts.scheduleLocal}
+              disabled={busy}
+              onChange={(e) => opts.setScheduleLocal(e.target.value)}
+              aria-label="Publish date and time"
+            />
+          )}
+        </div>
       </div>
 
       <div className="story-composer-actions story-composer-actions-multi">
