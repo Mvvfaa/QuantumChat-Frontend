@@ -18195,7 +18195,17 @@ body.theme-light .settings-field select option {
 .status-fab.text {
   width: 48px;
   height: 48px;
-  background: #233138;
+  background: var(--bg-elevated, #233138);
+  color: var(--text-primary, #fff);
+  border: 1px solid var(--border-subtle, transparent);
+}
+
+[data-theme='light'] .status-fab.text,
+body.theme-light .status-fab.text {
+  background: #fff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
 }
 .status-fab.camera {
   width: 58px;
