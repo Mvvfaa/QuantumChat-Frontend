@@ -1,5 +1,6 @@
 const MUTE_PREFIX = 'qc_muted_chats_';
 const ARCHIVE_PREFIX = 'qc_archived_chats_';
+const PIN_PREFIX = 'qc_pinned_chats_';
 const DRAFT_PREFIX = 'qc_draft_';
 const DRAFT_DB_NAME = 'quantumchat-drafts';
 const DRAFT_DB_VERSION = 1;
@@ -151,6 +152,34 @@ export function toggleArchiveChat(userId, conversationKey) {
   if (isChatArchived(userId, conversationKey)) return unarchiveChat(userId, conversationKey);
   return archiveChat(userId, conversationKey);
 }
+
+export function getPinnedChatKeys(userId) {
+  return readList(PIN_PREFIX, userId);
+}
+
+export function isChatPinned(userId, conversationKey) {
+  return getPinnedChatKeys(userId).includes(String(conversationKey));
+}
+
+export function pinChat(userId, conversationKey) {
+  const next = new Set(getPinnedChatKeys(userId));
+  next.add(String(conversationKey));
+  return writeList(PIN_PREFIX, userId, [...next]);
+}
+
+export function unpinChat(userId, conversationKey) {
+  return writeList(
+    PIN_PREFIX,
+    userId,
+    getPinnedChatKeys(userId).filter((k) => k !== String(conversationKey))
+  );
+}
+
+export function togglePinChat(userId, conversationKey) {
+  if (isChatPinned(userId, conversationKey)) return unpinChat(userId, conversationKey);
+  return pinChat(userId, conversationKey);
+}
+
 
 export async function getChatDraft(userId, conversationKey) {
   if (!userId || !conversationKey) return '';
