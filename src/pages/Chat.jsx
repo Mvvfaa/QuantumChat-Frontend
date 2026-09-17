@@ -94,6 +94,7 @@ import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../the
 import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
+  getPinnedChatKeys,
   getChatDraft,
   getInfoPanelOpen,
   getLastQuickReaction,
@@ -104,6 +105,7 @@ import {
   setLastQuickReaction,
   toggleArchiveChat,
   toggleMuteChat,
+  togglePinChat,
 } from "../utils/chatPrefs.js";
 import {
   chatPathForSelection,
@@ -307,6 +309,9 @@ export default function Chat() {
   const [mutedKeys, setMutedKeys] = useState(() => getMutedChatKeys(user?.id));
   const [archivedKeys, setArchivedKeys] = useState(() =>
     getArchivedChatKeys(user?.id),
+  );
+  const [pinnedChatKeys, setPinnedChatKeys] = useState(() =>
+    getPinnedChatKeys(user?.id),
   );
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -3027,6 +3032,7 @@ useEffect(() => {
     const activeGroups = searchResults ? searchResults.groups : groups;
     const muted = new Set(mutedKeys.map(String));
     const archived = new Set(archivedKeys.map(String));
+    const pinned = new Set(pinnedChatKeys.map(String));
 
     if (user?.id && selfPeer) {
       const key = conversationKeyForUser(user.id);
@@ -3051,6 +3057,7 @@ useEffect(() => {
         peer: selfPeer,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
+        pinned: pinned.has(String(key)),
         online: false,
         isSelfChat: true,
       });
@@ -3082,6 +3089,7 @@ useEffect(() => {
         peer: u,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
+        pinned: pinned.has(String(key)),
         online,
       });
     }
@@ -3112,6 +3120,7 @@ useEffect(() => {
         group: g,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
+        pinned: pinned.has(String(key)),
         online: false,
       });
     }
@@ -3139,6 +3148,7 @@ useEffect(() => {
 
     items.sort((a, b) => {
       if (a.isSelfChat !== b.isSelfChat) return a.isSelfChat ? -1 : 1;
+      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
       if (a.unread !== b.unread) return a.unread ? -1 : 1;
       return String(b.sortAt).localeCompare(String(a.sortAt));
     });
@@ -3182,6 +3192,7 @@ useEffect(() => {
     hiddenChatIds,
     mutedKeys,
     archivedKeys,
+    pinnedChatKeys,
     onlineUserIds,
     searchResults,
     vaultUnlocked,
@@ -6091,6 +6102,10 @@ useEffect(() => {
         }}
         onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
+        }}
+        onPin={(c) => {
+          setPinnedChatKeys(togglePinChat(user.id, c.key));
+          showToast(c.pinned ? "Chat unpinned" : "Chat pinned", "info");
         }}
         onToggleVault={(c) => handleToggleVault(c.id)}
         loadingUsers={loadingUsers}
