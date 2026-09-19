@@ -162,20 +162,14 @@ import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
-const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB — matches backend MAX_ATTACHMENT_SIZE
 // Ciphertext above this size uploads in sequential chunks instead of one
 // request body — must match backend CHUNK_SIZE in middleware/upload.js.
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
-function isRecentlyActive(iso) {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < ACTIVE_WINDOW_MS;
-}
-
+/** Never invent "online" from a timestamp — only real presence may say online. */
 function formatLastSeenLabel(iso) {
-  if (!iso) return "never logged in";
-  if (isRecentlyActive(iso)) return "online";
+  if (!iso) return "last seen recently";
   return formatLastSeen(iso);
 }
 
@@ -2124,18 +2118,27 @@ useEffect(() => {
     }
 
     function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
+      const id = String(userId);
       setOnlineUserIds((prev) => {
         const next = new Set(prev);
-        if (online) next.add(String(userId));
-        else next.delete(String(userId));
+        if (online) next.add(id);
+        else next.delete(id);
         return next;
       });
-      if (!online && lastLoginAt) {
+      if (lastLoginAt) {
         setUsers((prev) =>
           prev.map((u) =>
-            String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
+            String(u.id) === id ? { ...u, lastLoginAt } : u,
           ),
         );
+        setSelected((cur) => {
+          if (!cur || cur.type !== "dm" || String(cur.id) !== id) return cur;
+          if (cur.peer?.lastLoginAt === lastLoginAt) return cur;
+          return {
+            ...cur,
+            peer: { ...(cur.peer || {}), lastLoginAt },
+          };
+        });
       }
     }
 
@@ -2385,26 +2388,39 @@ useEffect(() => {
 
     let cancelled = false;
     let inFlight = false;
+    let lastSocketPeerSyncAt = 0;
+    let lastWatchedPeerId = null;
 
     async function syncPresence() {
       if (cancelled || inFlight) return;
       if (document.visibilityState === "hidden") return;
       const socket = getSocket();
-      if (socket?.connected) return;
+      const socketConnected = Boolean(socket?.connected);
+
+      const current = selectedRef.current;
+      const watchPeerId =
+        current?.type === "dm" &&
+          !current.isSelfChat &&
+          String(current.id) !== String(user.id)
+          ? String(current.id)
+          : null;
+      const watchGroupId =
+        current?.type === "group" ? String(current.id) : null;
+      const typing = presenceTypingRef.current || {};
+
+      // Socket owns live online/typing. Still heartbeat when watching a peer so
+      // last-seen stays fresh (and as full fallback when the socket is down).
+      if (socketConnected) {
+        if (!watchPeerId) return;
+        const peerChanged = watchPeerId !== lastWatchedPeerId;
+        lastWatchedPeerId = watchPeerId;
+        // Avoid hammering the DB every 2s while Socket.IO is already connected.
+        if (!peerChanged && Date.now() - lastSocketPeerSyncAt < 12_000) return;
+        lastSocketPeerSyncAt = Date.now();
+      }
 
       inFlight = true;
       try {
-        const current = selectedRef.current;
-        const watchPeerId =
-          current?.type === "dm" &&
-            !current.isSelfChat &&
-            String(current.id) !== String(user.id)
-            ? String(current.id)
-            : null;
-        const watchGroupId =
-          current?.type === "group" ? String(current.id) : null;
-        const typing = presenceTypingRef.current || {};
-
         const data = await postPresenceHeartbeat({
           typingTo: typing.to || null,
           typingGroupId: typing.groupId || null,
@@ -2414,7 +2430,33 @@ useEffect(() => {
 
         if (cancelled) return;
 
-        setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+        if (!socketConnected) {
+          setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+        }
+
+        const peerPresence = data.peerPresence;
+        if (peerPresence?.userId) {
+          const peerId = String(peerPresence.userId);
+          if (peerPresence.lastLoginAt) {
+            setUsers((prev) =>
+              prev.map((u) =>
+                String(u.id) === peerId
+                  ? { ...u, lastLoginAt: peerPresence.lastLoginAt }
+                  : u,
+              ),
+            );
+            setSelected((cur) => {
+              if (!cur || cur.type !== "dm" || String(cur.id) !== peerId) return cur;
+              if (cur.peer?.lastLoginAt === peerPresence.lastLoginAt) return cur;
+              return {
+                ...cur,
+                peer: { ...(cur.peer || {}), lastLoginAt: peerPresence.lastLoginAt },
+              };
+            });
+          }
+        }
+
+        if (socketConnected) return;
 
         const events = Array.isArray(data.typing) ? data.typing : [];
         if (watchPeerId) {
@@ -2991,11 +3033,11 @@ useEffect(() => {
     (conversation) => {
       if (!conversation || conversation.type === "group") return null;
       if (String(conversation.id) === String(user?.id)) return selfPeer;
-      return (
-        conversation.peer ||
-        users.find((u) => String(u.id) === String(conversation.id)) ||
-        null
-      );
+      const fromList = users.find((u) => String(u.id) === String(conversation.id));
+      const peer = conversation.peer;
+      // Prefer live users[] fields (lastLoginAt) over a stale selected.peer snapshot.
+      if (fromList && peer) return { ...peer, ...fromList };
+      return fromList || peer || null;
     },
     [user?.id, selfPeer, users],
   );
@@ -5983,11 +6025,9 @@ useEffect(() => {
     if (!selected || selected.type !== "dm") return false;
     if (selected.isSelfChat || String(selected.id) === String(user.id))
       return false;
-    const peer = resolveDmPeer(selected);
-    if (onlineUserIds.has(String(selected.id))) return true;
-    // Fallback only when socket presence hasn't arrived yet.
-    return isRecentlyActive(peer?.lastLoginAt);
-  }, [selected, resolveDmPeer, onlineUserIds, user.id]);
+    // Trust live presence only — lastLoginAt must not imply online.
+    return onlineUserIds.has(String(selected.id));
+  }, [selected, onlineUserIds, user.id]);
 
   const visibleMessages = useMemo(() => {
     const deleted = new Set(deletedForMeIds.map(String));
