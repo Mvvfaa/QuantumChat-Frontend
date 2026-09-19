@@ -25,6 +25,8 @@ import {
 } from '../utils/pushNotifications.js';
 import { playReceiveSound, unlockAudio } from '../utils/sounds.js';
 import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
+import { publicInviteLink } from '../utils/publicAppUrl.js';
+import { formatLastSeen } from '../utils/formatLastSeen.js';
 import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
 import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
@@ -434,12 +436,16 @@ export default function SettingsModal({
     return `Join me on QuantumChat, a private end-to-end encrypted messenger: ${link}`;
   }
 
+  const shareInviteLink = referralInfo
+    ? publicInviteLink(referralInfo.referralCode, referralInfo.referralLink)
+    : '';
+
   async function shareInviteNative() {
-    if (!referralInfo?.referralLink) return;
-    const text = inviteShareText(referralInfo.referralLink);
+    if (!shareInviteLink) return;
+    const text = inviteShareText(shareInviteLink);
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'Join me on QuantumChat', text, url: referralInfo.referralLink });
+        await navigator.share({ title: 'Join me on QuantumChat', text, url: shareInviteLink });
       } catch {
         // user cancelled share sheet
       }
@@ -449,9 +455,9 @@ export default function SettingsModal({
   }
 
   async function copyInviteLink() {
-    if (!referralInfo?.referralLink) return;
+    if (!shareInviteLink) return;
     try {
-      await navigator.clipboard.writeText(referralInfo.referralLink);
+      await navigator.clipboard.writeText(shareInviteLink);
       setOk('Invite link copied');
     } catch {
       setError('Could not copy link');
@@ -1794,7 +1800,8 @@ export default function SettingsModal({
                   protected — other people cannot freely screenshot them on their
                   device (best-effort on web, stronger on mobile). Chats with people
                   who have not turned this on stay normal. Enabling it does not
-                  protect every chat you open.
+                  protect every chat you open, and it does not block screenshots of
+                  Settings or other app screens.
                 </p>
 
                 <div className="settings-shield-badges">
@@ -2507,7 +2514,7 @@ export default function SettingsModal({
                             </span>
                             <span className="settings-row-hint">
                               {browser} · {os}
-                              {s.lastSeenAt ? ` · Last active ${new Date(s.lastSeenAt).toLocaleString()}` : ''}
+                              {s.lastSeenAt ? ` · Last active ${formatLastSeen(s.lastSeenAt, { prefix: '' })}` : ''}
                             </span>
                           </span>
                         </div>
@@ -2920,7 +2927,7 @@ export default function SettingsModal({
                   <>
                     <label className="settings-field">
                       <span>Your invite link</span>
-                      <input readOnly value={referralInfo.referralLink} onFocus={(e) => e.target.select()} />
+                      <input readOnly value={shareInviteLink} onFocus={(e) => e.target.select()} />
                     </label>
                     <div className="settings-key-actions">
                       <button type="button" className="settings-btn primary" onClick={shareInviteNative}>
@@ -2933,7 +2940,7 @@ export default function SettingsModal({
                     <div className="invite-quick-share">
                     <a
                       className="settings-btn ghost"
-                      href={`https://wa.me/?text=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                      href={`https://wa.me/?text=${encodeURIComponent(inviteShareText(shareInviteLink))}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       >
@@ -2941,13 +2948,13 @@ export default function SettingsModal({
                     </a>
 
                     <a className="settings-btn ghost"
-                    href={`mailto:?subject=${encodeURIComponent('Join me on QuantumChat')}&body=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                    href={`mailto:?subject=${encodeURIComponent('Join me on QuantumChat')}&body=${encodeURIComponent(inviteShareText(shareInviteLink))}`}
                       >
                     Email
                   </a>
 
                <a className="settings-btn ghost"
-                href={`sms:?&body=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                href={`sms:?&body=${encodeURIComponent(inviteShareText(shareInviteLink))}`}
                       >
                 Text message
               </a>

@@ -5,6 +5,7 @@ import {
   Bookmark,
   HelpCircle,
   Info,
+  LayoutDashboard,
   MessageSquare,
   Mic,
   Phone,
@@ -50,6 +51,7 @@ import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
 import ForwardModal from "../components/ForwardModal.jsx";
 import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
+import GroupCommandCenter from "../components/GroupCommandCenter.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
 import MessageInfoModal from "../components/MessageInfoModal.jsx";
@@ -156,26 +158,21 @@ import {
   setConversationActivity,
 } from "../utils/readState.js";
 import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
+import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
-const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB — matches backend MAX_ATTACHMENT_SIZE
 // Ciphertext above this size uploads in sequential chunks instead of one
 // request body — must match backend CHUNK_SIZE in middleware/upload.js.
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
-function isRecentlyActive(iso) {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < ACTIVE_WINDOW_MS;
-}
-
-function formatLastSeen(iso) {
-  if (!iso) return "never logged in";
-  if (isRecentlyActive(iso)) return "online";
-  return `last seen ${new Date(iso).toLocaleString()}`;
+/** Never invent "online" from a timestamp — only real presence may say online. */
+function formatLastSeenLabel(iso) {
+  if (!iso) return "last seen recently";
+  return formatLastSeen(iso);
 }
 
 function formatVoiceTimer(seconds) {
@@ -364,6 +361,7 @@ export default function Chat() {
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [profileUserId, setProfileUserId] = useState(null);
   const [groupComposerMenu, setGroupComposerMenu] = useState(null);
   const [pollDraft, setPollDraft] = useState(null);
@@ -1979,6 +1977,7 @@ useEffect(() => {
         setSelected(null);
         setMessages([]);
         setShowGroupSettings(false);
+        setShowCommandCenter(false);
         if (location.pathname !== "/chat") navigate("/chat");
       }
     }
@@ -2128,18 +2127,27 @@ useEffect(() => {
     }
 
     function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
+      const id = String(userId);
       setOnlineUserIds((prev) => {
         const next = new Set(prev);
-        if (online) next.add(String(userId));
-        else next.delete(String(userId));
+        if (online) next.add(id);
+        else next.delete(id);
         return next;
       });
-      if (!online && lastLoginAt) {
+      if (lastLoginAt) {
         setUsers((prev) =>
           prev.map((u) =>
-            String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
+            String(u.id) === id ? { ...u, lastLoginAt } : u,
           ),
         );
+        setSelected((cur) => {
+          if (!cur || cur.type !== "dm" || String(cur.id) !== id) return cur;
+          if (cur.peer?.lastLoginAt === lastLoginAt) return cur;
+          return {
+            ...cur,
+            peer: { ...(cur.peer || {}), lastLoginAt },
+          };
+        });
       }
     }
 
@@ -2389,26 +2397,39 @@ useEffect(() => {
 
     let cancelled = false;
     let inFlight = false;
+    let lastSocketPeerSyncAt = 0;
+    let lastWatchedPeerId = null;
 
     async function syncPresence() {
       if (cancelled || inFlight) return;
       if (document.visibilityState === "hidden") return;
       const socket = getSocket();
-      if (socket?.connected) return;
+      const socketConnected = Boolean(socket?.connected);
+
+      const current = selectedRef.current;
+      const watchPeerId =
+        current?.type === "dm" &&
+          !current.isSelfChat &&
+          String(current.id) !== String(user.id)
+          ? String(current.id)
+          : null;
+      const watchGroupId =
+        current?.type === "group" ? String(current.id) : null;
+      const typing = presenceTypingRef.current || {};
+
+      // Socket owns live online/typing. Still heartbeat when watching a peer so
+      // last-seen stays fresh (and as full fallback when the socket is down).
+      if (socketConnected) {
+        if (!watchPeerId) return;
+        const peerChanged = watchPeerId !== lastWatchedPeerId;
+        lastWatchedPeerId = watchPeerId;
+        // Avoid hammering the DB every 2s while Socket.IO is already connected.
+        if (!peerChanged && Date.now() - lastSocketPeerSyncAt < 12_000) return;
+        lastSocketPeerSyncAt = Date.now();
+      }
 
       inFlight = true;
       try {
-        const current = selectedRef.current;
-        const watchPeerId =
-          current?.type === "dm" &&
-            !current.isSelfChat &&
-            String(current.id) !== String(user.id)
-            ? String(current.id)
-            : null;
-        const watchGroupId =
-          current?.type === "group" ? String(current.id) : null;
-        const typing = presenceTypingRef.current || {};
-
         const data = await postPresenceHeartbeat({
           typingTo: typing.to || null,
           typingGroupId: typing.groupId || null,
@@ -2418,7 +2439,33 @@ useEffect(() => {
 
         if (cancelled) return;
 
-        setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+        if (!socketConnected) {
+          setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+        }
+
+        const peerPresence = data.peerPresence;
+        if (peerPresence?.userId) {
+          const peerId = String(peerPresence.userId);
+          if (peerPresence.lastLoginAt) {
+            setUsers((prev) =>
+              prev.map((u) =>
+                String(u.id) === peerId
+                  ? { ...u, lastLoginAt: peerPresence.lastLoginAt }
+                  : u,
+              ),
+            );
+            setSelected((cur) => {
+              if (!cur || cur.type !== "dm" || String(cur.id) !== peerId) return cur;
+              if (cur.peer?.lastLoginAt === peerPresence.lastLoginAt) return cur;
+              return {
+                ...cur,
+                peer: { ...(cur.peer || {}), lastLoginAt: peerPresence.lastLoginAt },
+              };
+            });
+          }
+        }
+
+        if (socketConnected) return;
 
         const events = Array.isArray(data.typing) ? data.typing : [];
         if (watchPeerId) {
@@ -2995,11 +3042,11 @@ useEffect(() => {
     (conversation) => {
       if (!conversation || conversation.type === "group") return null;
       if (String(conversation.id) === String(user?.id)) return selfPeer;
-      return (
-        conversation.peer ||
-        users.find((u) => String(u.id) === String(conversation.id)) ||
-        null
-      );
+      const fromList = users.find((u) => String(u.id) === String(conversation.id));
+      const peer = conversation.peer;
+      // Prefer live users[] fields (lastLoginAt) over a stale selected.peer snapshot.
+      if (fromList && peer) return { ...peer, ...fromList };
+      return fromList || peer || null;
     },
     [user?.id, selfPeer, users],
   );
@@ -3016,8 +3063,10 @@ useEffect(() => {
       }),
     [user?.id, selected, profileUserId, users, groups, resolveDmPeer],
   );
-  useScreenshotProtection(screenshotProtectionOn, {
+  // Only protect the open chat thread — Settings and other app overlays stay capturable.
+  useScreenshotProtection(screenshotProtectionOn && !showSettings, {
     scope: "chat",
+    targetSelector: ".chat-main",
     onAttempt: (reason) => {
       showToast(
         reason === "screenshot"
@@ -3314,6 +3363,7 @@ useEffect(() => {
     setMentionOpen(false);
     setPendingAnnouncement(false);
     setShowGroupSettings(false);
+    setShowCommandCenter(false);
     setProfileUserId(null);
     setPeerTyping(false);
     setGroupTypingUsers([]);
@@ -5823,7 +5873,7 @@ useEffect(() => {
     // Server already filtered presence by the peer's onlineStatus privacy.
     const presenceLabel = onlineUserIds.has(String(selected.id))
       ? "online"
-      : formatLastSeen(peer?.lastLoginAt);
+      : formatLastSeenLabel(peer?.lastLoginAt);
     const customStatus = (peer?.statusText || "").trim();
     if (customStatus) {
       return presenceLabel ? `${presenceLabel} · ${customStatus}` : customStatus;
@@ -5984,6 +6034,7 @@ useEffect(() => {
       applyConversationSelection(null);
     }
     setShowGroupSettings(false);
+    setShowCommandCenter(false);
     setProfileUserId(null);
   }
 
@@ -5991,11 +6042,9 @@ useEffect(() => {
     if (!selected || selected.type !== "dm") return false;
     if (selected.isSelfChat || String(selected.id) === String(user.id))
       return false;
-    const peer = resolveDmPeer(selected);
-    if (onlineUserIds.has(String(selected.id))) return true;
-    // Fallback only when socket presence hasn't arrived yet.
-    return isRecentlyActive(peer?.lastLoginAt);
-  }, [selected, resolveDmPeer, onlineUserIds, user.id]);
+    // Trust live presence only — lastLoginAt must not imply online.
+    return onlineUserIds.has(String(selected.id));
+  }, [selected, onlineUserIds, user.id]);
 
   const visibleMessages = useMemo(() => {
     const deleted = new Set(deletedForMeIds.map(String));
@@ -6537,14 +6586,24 @@ useEffect(() => {
                   <MessageSquare size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 {selected?.type === "group" && (
-                  <button
-                    className="icon-btn chat-header-action-secondary"
-                    onClick={() => setShowGroupSettings(true)}
-                    title="Group settings"
-                    aria-label="Group settings"
-                  >
-                    <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
+                  <>
+                    <button
+                      className="icon-btn chat-header-action-secondary"
+                      onClick={() => setShowCommandCenter(true)}
+                      title="Command Center"
+                      aria-label="Command Center"
+                    >
+                      <LayoutDashboard size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="icon-btn chat-header-action-secondary"
+                      onClick={() => setShowGroupSettings(true)}
+                      title="Group settings"
+                      aria-label="Group settings"
+                    >
+                      <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
                 )}
                 {selected && (
                   <button
@@ -6577,6 +6636,11 @@ useEffect(() => {
                     onOpenGroupSettings={
                       selected.type === "group"
                         ? () => setShowGroupSettings(true)
+                        : undefined
+                    }
+                    onOpenCommandCenter={
+                      selected.type === "group"
+                        ? () => setShowCommandCenter(true)
                         : undefined
                     }
                     onToggleVault={
@@ -7344,6 +7408,27 @@ useEffect(() => {
     }}
   />
 )}
+      {showCommandCenter && activeGroup && (
+        <GroupCommandCenter
+          group={activeGroup}
+          messages={messages}
+          currentUserId={user.id}
+          onClose={() => setShowCommandCenter(false)}
+          onUpdated={mergeUpdatedGroup}
+          onJumpToMessage={(messageId) => setPendingJumpMessageId(String(messageId))}
+          onOpenGroupSettings={() => {
+            setShowCommandCenter(false);
+            setShowGroupSettings(true);
+          }}
+          onAskAiSummary={() => {
+            setDraft(
+              "@QuantumAI Please summarize this group: key announcements, open tasks, upcoming events, and recent decisions.",
+            );
+            setShowCommandCenter(false);
+            showToast("Review the draft, then send to ask QuantumAI", "info");
+          }}
+        />
+      )}
       {profileUserId && (
         <UserProfileModal
           userId={profileUserId}
@@ -7967,6 +8052,7 @@ useEffect(() => {
           users={users}
           onOpenProfile={setProfileUserId}
           onOpenGroupSettings={() => setShowGroupSettings(true)}
+          onOpenCommandCenter={() => setShowCommandCenter(true)}
         >
           {selected?.type === "dm" &&
             !selected.isSelfChat &&
@@ -8005,6 +8091,10 @@ useEffect(() => {
             onOpenGroupSettings={() => {
               closeInfoPanel();
               setShowGroupSettings(true);
+            }}
+            onOpenCommandCenter={() => {
+              closeInfoPanel();
+              setShowCommandCenter(true);
             }}
           >
             {selected?.type === "dm" &&

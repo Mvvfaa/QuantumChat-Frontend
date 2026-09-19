@@ -10,7 +10,7 @@ import {
   unlockStoryKey,
   viewerCanSeeStory,
 } from '../utils/storyMedia.js';
-import { getSocket } from '../api/socket.js';
+import { connectSocket, getSocket } from '../api/socket.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage, unsealMessage } from '../crypto/keys.js';
 import {
@@ -214,15 +214,15 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     return list;
   }, [stories, currentUser?.id]);
 
-  async function loadStories() {
-    setStoriesLoading(true);
+  async function loadStories({ quiet = false } = {}) {
+    if (!quiet) setStoriesLoading(true);
     try {
       const { data } = await client.get('/stories');
       setStories(data.data || []);
     } catch {
-      setStories([]);
+      if (!quiet) setStories([]);
     } finally {
-      setStoriesLoading(false);
+      if (!quiet) setStoriesLoading(false);
     }
   }
 
@@ -241,44 +241,93 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   }, []);
 
   useEffect(() => {
-  const socket = getSocket();
-  if (!socket) return undefined;
-  function onNew(payload) {
-    if (!payload?.id) return;
-    if (!viewerCanSeeStory(payload, currentUser?.id)) return;
-    const isOwn = String(payload.user?.id) === String(currentUser?.id);
-    setStories((prev) => {
-      if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
-      return [payload, ...prev];
-    });
+    let cancelled = false;
+    let attached = null;
 
-    if (!isOwn) {
-      const mode = notifSettings?.statusNotifications;
-      const isSelected = (notifSettings?.statusNotificationsSelectedFriends || [])
-        .map(String)
-        .includes(String(payload.user?.id));
-      const allowed = mode !== 'off' && (mode !== 'selected' || isSelected);
-      if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
-        playNotificationSound(notifSettings);
-        showNotificationPopup(
-          { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
-          notifSettings,
-          () => {},
-        );
+    function onNew(payload) {
+      if (!payload?.id) return;
+      if (!viewerCanSeeStory(payload, currentUser?.id)) return;
+      const isOwn = String(payload.user?.id) === String(currentUser?.id);
+      setStories((prev) => {
+        if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
+        return [payload, ...prev];
+      });
+
+      if (!isOwn) {
+        const mode = notifSettings?.statusNotifications;
+        const isSelected = (notifSettings?.statusNotificationsSelectedFriends || [])
+          .map(String)
+          .includes(String(payload.user?.id));
+        const allowed = mode !== 'off' && (mode !== 'selected' || isSelected);
+        if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
+          playNotificationSound(notifSettings);
+          showNotificationPopup(
+            { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
+            notifSettings,
+            () => {},
+          );
+        }
       }
     }
-  }
-  function onDeleted({ id } = {}) {
-    if (!id) return;
-    setStories((prev) => prev.filter((s) => String(s.id) !== String(id)));
-  }
-  socket.on('story:new', onNew);
-  socket.on('story:deleted', onDeleted);
-  return () => {
-    socket.off('story:new', onNew);
-    socket.off('story:deleted', onDeleted);
-  };
-}, [currentUser?.id, currentUser?.friends, notifSettings]);
+
+    function onDeleted({ id } = {}) {
+      if (!id) return;
+      setStories((prev) => prev.filter((s) => String(s.id) !== String(id)));
+    }
+
+    function detach() {
+      if (!attached) return;
+      attached.off('story:new', onNew);
+      attached.off('story:deleted', onDeleted);
+      attached.off('connect', onSocketConnect);
+      attached = null;
+    }
+
+    function attach(socket) {
+      if (!socket || cancelled || attached === socket) return;
+      detach();
+      attached = socket;
+      socket.on('story:new', onNew);
+      socket.on('story:deleted', onDeleted);
+      socket.on('connect', onSocketConnect);
+    }
+
+    function onSocketConnect() {
+      // Catch stories posted while we were disconnected.
+      if (!cancelled) loadStories({ quiet: true }).catch(() => {});
+    }
+
+    // Chat may connect the socket slightly after StoriesRail mounts — keep trying.
+    attach(getSocket() || connectSocket());
+    const waitTimer = setInterval(() => {
+      if (cancelled) return;
+      attach(getSocket() || connectSocket());
+    }, 1500);
+
+    // Fallback when Socket.IO is unavailable (e.g. serverless API with no signal URL).
+    const pollTimer = setInterval(() => {
+      if (cancelled || document.hidden) return;
+      const live = getSocket()?.connected;
+      if (!live) loadStories({ quiet: true }).catch(() => {});
+    }, 12000);
+
+    function onVisible() {
+      if (document.visibilityState === 'visible') {
+        loadStories({ quiet: true }).catch(() => {});
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(waitTimer);
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      detach();
+    };
+  }, [currentUser?.id, notifSettings]);
 
   useEffect(() => {
     setFabHost(document.querySelector('.qc-conversation-pane'));
