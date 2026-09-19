@@ -156,6 +156,7 @@ import {
   setConversationActivity,
 } from "../utils/readState.js";
 import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
+import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
@@ -172,10 +173,10 @@ function isRecentlyActive(iso) {
   return Date.now() - new Date(iso).getTime() < ACTIVE_WINDOW_MS;
 }
 
-function formatLastSeen(iso) {
+function formatLastSeenLabel(iso) {
   if (!iso) return "never logged in";
   if (isRecentlyActive(iso)) return "online";
-  return `last seen ${new Date(iso).toLocaleString()}`;
+  return formatLastSeen(iso);
 }
 
 function formatVoiceTimer(seconds) {
@@ -5814,7 +5815,7 @@ useEffect(() => {
     // Server already filtered presence by the peer's onlineStatus privacy.
     const presenceLabel = onlineUserIds.has(String(selected.id))
       ? "online"
-      : formatLastSeen(peer?.lastLoginAt);
+      : formatLastSeenLabel(peer?.lastLoginAt);
     const customStatus = (peer?.statusText || "").trim();
     if (customStatus) {
       return presenceLabel ? `${presenceLabel} · ${customStatus}` : customStatus;

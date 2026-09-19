@@ -26,6 +26,7 @@ import {
 import { playReceiveSound, unlockAudio } from '../utils/sounds.js';
 import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
 import { publicInviteLink } from '../utils/publicAppUrl.js';
+import { formatLastSeen } from '../utils/formatLastSeen.js';
 import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
 import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
@@ -2513,7 +2514,7 @@ export default function SettingsModal({
                             </span>
                             <span className="settings-row-hint">
                               {browser} · {os}
-                              {s.lastSeenAt ? ` · Last active ${new Date(s.lastSeenAt).toLocaleString()}` : ''}
+                              {s.lastSeenAt ? ` · Last active ${formatLastSeen(s.lastSeenAt, { prefix: '' })}` : ''}
                             </span>
                           </span>
                         </div>
