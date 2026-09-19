@@ -5,6 +5,7 @@ import {
   Bookmark,
   HelpCircle,
   Info,
+  LayoutDashboard,
   MessageSquare,
   Mic,
   Phone,
@@ -50,6 +51,7 @@ import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
 import ForwardModal from "../components/ForwardModal.jsx";
 import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
+import GroupCommandCenter from "../components/GroupCommandCenter.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
 import MessageInfoModal from "../components/MessageInfoModal.jsx";
@@ -357,6 +359,7 @@ export default function Chat() {
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [profileUserId, setProfileUserId] = useState(null);
   const [groupComposerMenu, setGroupComposerMenu] = useState(null);
   const [pollDraft, setPollDraft] = useState(null);
@@ -1969,6 +1972,7 @@ useEffect(() => {
         setSelected(null);
         setMessages([]);
         setShowGroupSettings(false);
+        setShowCommandCenter(false);
         if (location.pathname !== "/chat") navigate("/chat");
       }
     }
@@ -3354,6 +3358,7 @@ useEffect(() => {
     setMentionOpen(false);
     setPendingAnnouncement(false);
     setShowGroupSettings(false);
+    setShowCommandCenter(false);
     setProfileUserId(null);
     setPeerTyping(false);
     setGroupTypingUsers([]);
@@ -6018,6 +6023,7 @@ useEffect(() => {
       applyConversationSelection(null);
     }
     setShowGroupSettings(false);
+    setShowCommandCenter(false);
     setProfileUserId(null);
   }
 
@@ -6569,14 +6575,24 @@ useEffect(() => {
                   <MessageSquare size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 {selected?.type === "group" && (
-                  <button
-                    className="icon-btn chat-header-action-secondary"
-                    onClick={() => setShowGroupSettings(true)}
-                    title="Group settings"
-                    aria-label="Group settings"
-                  >
-                    <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
+                  <>
+                    <button
+                      className="icon-btn chat-header-action-secondary"
+                      onClick={() => setShowCommandCenter(true)}
+                      title="Command Center"
+                      aria-label="Command Center"
+                    >
+                      <LayoutDashboard size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="icon-btn chat-header-action-secondary"
+                      onClick={() => setShowGroupSettings(true)}
+                      title="Group settings"
+                      aria-label="Group settings"
+                    >
+                      <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
                 )}
                 {selected && (
                   <button
@@ -6609,6 +6625,11 @@ useEffect(() => {
                     onOpenGroupSettings={
                       selected.type === "group"
                         ? () => setShowGroupSettings(true)
+                        : undefined
+                    }
+                    onOpenCommandCenter={
+                      selected.type === "group"
+                        ? () => setShowCommandCenter(true)
                         : undefined
                     }
                     onToggleVault={
@@ -7376,6 +7397,27 @@ useEffect(() => {
     }}
   />
 )}
+      {showCommandCenter && activeGroup && (
+        <GroupCommandCenter
+          group={activeGroup}
+          messages={messages}
+          currentUserId={user.id}
+          onClose={() => setShowCommandCenter(false)}
+          onUpdated={mergeUpdatedGroup}
+          onJumpToMessage={(messageId) => setPendingJumpMessageId(String(messageId))}
+          onOpenGroupSettings={() => {
+            setShowCommandCenter(false);
+            setShowGroupSettings(true);
+          }}
+          onAskAiSummary={() => {
+            setDraft(
+              "@QuantumAI Please summarize this group: key announcements, open tasks, upcoming events, and recent decisions.",
+            );
+            setShowCommandCenter(false);
+            showToast("Review the draft, then send to ask QuantumAI", "info");
+          }}
+        />
+      )}
       {profileUserId && (
         <UserProfileModal
           userId={profileUserId}
@@ -7974,6 +8016,7 @@ useEffect(() => {
           users={users}
           onOpenProfile={setProfileUserId}
           onOpenGroupSettings={() => setShowGroupSettings(true)}
+          onOpenCommandCenter={() => setShowCommandCenter(true)}
         >
           {selected?.type === "dm" &&
             !selected.isSelfChat &&
@@ -8012,6 +8055,10 @@ useEffect(() => {
             onOpenGroupSettings={() => {
               closeInfoPanel();
               setShowGroupSettings(true);
+            }}
+            onOpenCommandCenter={() => {
+              closeInfoPanel();
+              setShowCommandCenter(true);
             }}
           >
             {selected?.type === "dm" &&
