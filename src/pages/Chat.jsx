@@ -95,6 +95,7 @@ import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 import activityStore from "../utils/activityStore.js";
+import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia, updateOfflineMedia } from "../utils/offlineMediaQueue.js";
 import {
   getAllOfflineMessages,
   getOfflineMessages,
@@ -4715,7 +4716,7 @@ useEffect(() => {
     );
     return undefined;
   }
-  async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false } = {}) {
+  async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false, offlineId, skipOutbox = false, offlineEntry } = {}) {
     if (
       !file ||
       !selected ||
@@ -4731,18 +4732,45 @@ useEffect(() => {
       return;
     }
 
-    const uploadId = crypto.randomUUID();
+    const uploadId = offlineId || crypto.randomUUID();
     const controller = new AbortController();
     setUploads((prev) => [
       ...prev,
       { id: uploadId, name: file.name, progress: 0, controller },
     ]);
+    const pendingMessageId = `outbox-${uploadId}`;
+    setMessages((prev) => {
+      if (prev.some((message) => String(message.id || message._id) === pendingMessageId)) return prev;
+      return [...prev, {
+        id: pendingMessageId,
+        _id: pendingMessageId,
+        from: user.id,
+        ...(selected.type === "group" ? { group: selected.id } : { to: selected.id }),
+        text: file.name || "Attachment",
+        createdAt: new Date().toISOString(),
+        _status: "sending",
+        _pending: true,
+        _mediaPending: true,
+      }];
+    });
 
     try {
       if (selected.type === "group") {
         const fileBytes =
           plainBytes || new Uint8Array(await file.arrayBuffer());
         const sealed = await secretboxSealAsync(fileBytes);
+        if (!skipOutbox) await saveOfflineMedia(user.id, {
+          id: uploadId,
+          type: "group",
+          conversationId: selected.id,
+          conversationKey: selected.key,
+          filename: file.name,
+          mimetype: file.type || "application/octet-stream",
+          viewOnce,
+          sealedKey: sealed.key,
+          sealedNonce: sealed.nonce,
+          sourceBytes: fileBytes,
+        });
         const mimeType = file.type || "application/octet-stream";
         const cipherBlob = new Blob([sealed.cipherBytes], { type: mimeType });
         const useChunked = sealed.cipherBytes.byteLength > CHUNK_SIZE;
@@ -4759,7 +4787,11 @@ useEffect(() => {
           },
           { signal: controller.signal },
         );
-        const { pendingUploadId } = initRes.data.data;
+        const initData = initRes.data.data;
+        const pendingUploadId = initData.pendingUploadId;
+        let attachment = initData.finalizedAttachmentId
+          ? { id: initData.finalizedAttachmentId, filename: file.name, mimetype: mimeType, size: file.size }
+          : null;
 
         const onRecipientProgress = (event) => {
           if (!event.total) return;
@@ -4772,7 +4804,7 @@ useEffect(() => {
           );
         };
 
-        const recipientDirectUploadId = useChunked
+        const recipientDirectUploadId = attachment ? undefined : (useChunked
           ? await putCiphertextChunked(sealed.cipherBytes, {
               pendingUploadId,
               slot: "recipient",
@@ -4784,18 +4816,20 @@ useEffect(() => {
               slot: "recipient",
               signal: controller.signal,
               onProgress: onRecipientProgress,
-            });
-
-        const finalizeRes = await client.post(
-          "/attachments/finalize",
-          { pendingUploadId, clientUploadId: uploadId, recipientDirectUploadId },
-          { signal: controller.signal },
-        );
-        const attachment = finalizeRes.data.data;
+            }));
+        if (!attachment) {
+          const finalizeRes = await client.post(
+            "/attachments/finalize",
+            { pendingUploadId: initData.pendingUploadId, clientUploadId: uploadId, recipientDirectUploadId },
+            { signal: controller.signal },
+          );
+          attachment = finalizeRes.data.data;
+          await updateOfflineMedia(user.id, uploadId, { finalizedAttachmentId: attachment.id });
+        }
         const plaintext = encodeGroupFile({
           attachmentId: attachment.id,
-          key: sealed.key,
-          nonce: sealed.nonce,
+          key: offlineEntry?.sealedKey || sealed.key,
+          nonce: offlineEntry?.sealedNonce || sealed.nonce,
           filename: attachment.filename || file.name,
           mimetype:
             attachment.mimetype || file.type || "application/octet-stream",
@@ -4806,8 +4840,10 @@ useEffect(() => {
           kind: "file",
           attachmentId: attachment.id,
           clientMessageId: uploadId,
+          tempId: pendingMessageId,
           ...(wantViewOnce ? { viewOnce: true } : {}),
         });
+        await removeOfflineMedia(user.id, uploadId);
         playSendSound();
         if (!quiet) showToast("File sent successfully", "success", 3000);
         setTimeout(() => scrollToBottom("smooth"), 50);
@@ -4823,6 +4859,16 @@ useEffect(() => {
       }
       const recipientPublicKey = pickRandom(recipientKeys);
       const fileBytes = plainBytes || new Uint8Array(await file.arrayBuffer());
+      if (!skipOutbox) await saveOfflineMedia(user.id, {
+        id: uploadId,
+        type: "dm",
+        conversationId: selected.id,
+        conversationKey: selected.key,
+        filename: file.name,
+        mimetype: file.type || "application/octet-stream",
+        viewOnce,
+        sourceBytes: fileBytes,
+      });
       // Safe to run concurrently: each call only transfers its OWN output
       // buffer back (see cryptoWorker.js) — fileBytes itself is never
       // transferred, so there's nothing shared to race on.
@@ -4856,7 +4902,10 @@ useEffect(() => {
         },
         { signal: controller.signal },
       );
-      const { pendingUploadId, sender } = initRes.data.data;
+      const initData = initRes.data.data;
+      const existingAttachmentId = initData.finalizedAttachmentId;
+      const pendingUploadId = initData.pendingUploadId;
+      const sender = initData.sender;
 
       let recipientLoaded = 0;
       let senderLoaded = 0;
@@ -4871,7 +4920,7 @@ useEffect(() => {
           prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
         );
       };
-      const recipientUploadPromise = useChunked
+      const recipientUploadPromise = existingAttachmentId ? Promise.resolve(undefined) : (useChunked
         ? putCiphertextChunked(forRecipientFile.cipherBytes, {
             pendingUploadId,
             slot: "recipient",
@@ -4889,9 +4938,9 @@ useEffect(() => {
               recipientLoaded = event.loaded || 0;
               reportProgress();
             },
-          });
+          }));
 
-      const senderUploadPromise = sender
+      const senderUploadPromise = existingAttachmentId ? Promise.resolve(undefined) : (sender
         ? useChunked
           ? putCiphertextChunked(forSenderFile.cipherBytes, {
               pendingUploadId,
@@ -4911,7 +4960,7 @@ useEffect(() => {
                 reportProgress();
               },
             })
-        : Promise.resolve(undefined);
+        : Promise.resolve(undefined));
 
       // Recipient and sender ciphertext are independent objects server-side
       // — concurrent upload roughly halves wall-clock time versus two full
@@ -4921,12 +4970,16 @@ useEffect(() => {
         senderUploadPromise,
       ]);
 
-      const finalizeRes = await client.post(
-        "/attachments/finalize",
-        { pendingUploadId, clientUploadId: uploadId, recipientDirectUploadId, senderDirectUploadId },
-        { signal: controller.signal },
-      );
-      const attachmentId = finalizeRes.data.data.id;
+      let attachmentId = existingAttachmentId;
+      if (!attachmentId) {
+        const finalizeRes = await client.post(
+          "/attachments/finalize",
+          { pendingUploadId, clientUploadId: uploadId, recipientDirectUploadId, senderDirectUploadId },
+          { signal: controller.signal },
+        );
+        attachmentId = finalizeRes.data.data.id;
+        await updateOfflineMedia(user.id, uploadId, { finalizedAttachmentId: attachmentId });
+      }
 
       const forRecipient = sealMessage("", recipientPublicKey);
       const forSender = sealMessage("", myKey.publicKey);
@@ -4943,12 +4996,13 @@ useEffect(() => {
       const forwardPolicy = buildForwardPolicy();
       if (forwardPolicy && !wantViewOnce) msgBody.forwardPolicy = forwardPolicy;
       const { data } = await client.post("/messages", msgBody);
+      await removeOfflineMedia(user.id, uploadId);
       recordActivityFromMessage(data.data);
-      setMessages((prev) => {
-        const id = String(data.data.id || data.data._id);
-        if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-        return [...prev, decorate(data.data)];
-      });
+      setMessages((prev) => mergeConfirmedMessage(prev, {
+        tempId: pendingMessageId,
+        serverRaw: data.data,
+        displayText: file.name,
+      }));
       playSendSound();
       if (!quiet) showToast("File sent successfully", "success", 3000);
       setTimeout(() => scrollToBottom("smooth"), 50);
@@ -4963,10 +5017,46 @@ useEffect(() => {
           "error",
         );
       }
+      if (isRetryableSendError(err)) {
+        setMessages((prev) => prev.map((message) =>
+          String(message.id || message._id) === pendingMessageId
+            ? { ...message, _status: "waiting" }
+            : message,
+        ));
+      } else {
+        setMessages((prev) => prev.filter((message) => String(message.id || message._id) !== pendingMessageId));
+      }
     } finally {
       setUploads((prev) => prev.filter((u) => u.id !== uploadId));
     }
   }
+
+  async function retryOfflineMediaForSelection() {
+    if (!navigator.onLine || !user?.id || !selected?.key) return;
+    const entries = (await getOfflineMedia(user.id)).filter(
+      (entry) => entry.conversationKey === selected.key,
+    );
+    for (const entry of entries) {
+      const file = new File([entry.sourceBytes], entry.filename || 'attachment', {
+        type: entry.mimetype || 'application/octet-stream',
+      });
+      await sendAttachmentFile(file, {
+        plainBytes: entry.sourceBytes,
+        viewOnce: entry.viewOnce === true,
+        offlineId: entry.id,
+        skipOutbox: true,
+        offlineEntry: entry,
+        quiet: true,
+      });
+    }
+  }
+
+  useEffect(() => {
+    const retry = () => retryOfflineMediaForSelection().catch(() => {});
+    window.addEventListener('online', retry);
+    retry();
+    return () => window.removeEventListener('online', retry);
+  }, [selected?.key, user?.id]);
   async function sendAttachmentFiles(filesOrFile, { viewOnce = false } = {}) {
     const list = Array.isArray(filesOrFile)
       ? filesOrFile
