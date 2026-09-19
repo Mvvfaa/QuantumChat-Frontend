@@ -14,7 +14,7 @@ export function publicAppOrigin() {
     if (!isLocal) return window.location.origin.replace(/\/$/, '');
   }
 
-  return 'https://quantum-chat-frontend-mu.vercel.app';
+  return 'https://chat.quantumlogicslimited.com';
 }
 
 export function publicInviteLink(referralCode, apiReferralLink) {
