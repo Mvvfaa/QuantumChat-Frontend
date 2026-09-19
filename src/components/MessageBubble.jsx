@@ -159,12 +159,14 @@ function MessageBubble({
   const [reactSearchOpen, setReactSearchOpen] = useState(false);
   const [reactQuery, setReactQuery] = useState('');
   const [coords, setCoords] = useState({ top: 0, left: 0, placement: 'below', ready: false });
+  const [justUnlocked, setJustUnlocked] = useState(false);
 
   const rootRef = useRef(null);
   const moreRef = useRef(null);
   const reactBtnRef = useRef(null);
   const popoverRef = useRef(null);
   const anchorRef = useRef(null);
+  const wasLockedRef = useRef(message.locked);
   const messageId = message.id || message._id;
   const reactionGroups = groupReactions(message.reactions);
   const myReaction = (message.reactions || []).find((r) => String(r.user) === String(currentUserId))?.emoji;
@@ -204,7 +206,8 @@ function MessageBubble({
     () => (emojiOnly ? splitEmojis(message.text) : []),
     [emojiOnly, message.text],
   );
-  const isDecryptionFail = message.text === null;
+    const isLockedCapsule = Boolean(message.timeCapsule && message.locked);
+  const isDecryptionFail = message.text === null && !isLockedCapsule;
 
   const callMeta = useMemo(() => {
     if (!message.text) return null;
@@ -333,6 +336,14 @@ function MessageBubble({
     const next = placePopover(anchor, popoverRef.current, { preferMine: isMine });
     setCoords({ ...next, ready: true });
   }
+  useEffect(() => {
+  if (wasLockedRef.current && !message.locked && message.timeCapsule) {
+    setJustUnlocked(true);
+    const t = setTimeout(() => setJustUnlocked(false), 2500);
+    return () => clearTimeout(t);
+  }
+  wasLockedRef.current = message.locked;
+}, [message.locked, message.timeCapsule]);
 
   useLayoutEffect(() => {
     if (!anyPopover) {
@@ -526,7 +537,14 @@ function MessageBubble({
         animate={{ opacity: 1 }}
         transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'}`}>
+        <div className={`message-bubble-wrap ${isMine ? 'mine' : 'theirs'} ${justUnlocked ? 'capsule-unlocked-pop' : ''}`}>
+          {justUnlocked && (
+    <div className="capsule-unlock-alert" role="status">
+      <span className="capsule-sparkle-emoji">✨</span>
+      Time capsule unlocked!
+      <span className="capsule-sparkle-emoji">✨</span>
+    </div>
+  )}
           <div
             className={`message-bubble ${isMine ? 'mine' : 'theirs'} ${grouped ? 'grouped' : ''}${message.expiresAt ? ' has-expiry' : ''}${isStoryReaction ? ' story-reaction-pill' : ''}${emojiOnly ? ' emoji-only' : ''}${textDir ? ` is-${textDir}` : ''}`}
             dir={textDir}
@@ -557,6 +575,11 @@ function MessageBubble({
             )}
             {message.forwardedFrom?.username && (
               <div className="message-forwarded-label">Forwarded from {message.forwardedFrom.username}</div>
+            )}
+            {message.timeCapsule && (
+              <div className="message-forwarded-label capsule-badge">
+                ⏳ Time capsule{message.unlocksAt ? ` · unlocks ${new Date(message.unlocksAt).toLocaleString()}` : ''}
+              </div>
             )}
             {replyPreview && (
               <button
@@ -716,12 +739,16 @@ function MessageBubble({
                 </span>
               ) : (
                 <span
-  className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
-  dir={detectTextDirection(message.text)}
->
-  <LinkifiedText text={message.text} />
-</span>
+                  className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
+                  dir={detectTextDirection(message.text)}
+                >
+                  <LinkifiedText text={message.text} />
+                </span>
               )
+            ) : isLockedCapsule ? (
+              <em dir="auto" className="capsule-locked">
+                🔒 Time capsule — unlocks {new Date(message.unlocksAt).toLocaleString()}
+              </em>
             ) : isDecryptionFail ? (
               <em dir="auto">[Unable to decrypt message]</em>
             ) : null}
