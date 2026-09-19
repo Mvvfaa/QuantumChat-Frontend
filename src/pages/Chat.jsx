@@ -7785,10 +7785,21 @@ useEffect(() => {
           usernameById={usernameById}
           currentUserId={user.id}
           onSelect={handleOpenStarredEntry}
+          onCopy={(entry) => {
+            const text = entry?.text || (entry?.attachmentFilename ? `[${entry.attachmentFilename}]` : '');
+            if (!text) return;
+            navigator.clipboard?.writeText(text).then(
+              () => showToast('Copied to clipboard', 'success'),
+              () => showToast('Could not copy message', 'error'),
+            );
+          }}
           onUnstar={(id) => {
             const nextIds = toggleStarredMessage(user.id, { id }, null);
             setStarredIds(nextIds);
             setExtrasTick((n) => n + 1);
+          }}
+          onRemoveImportant={() => {
+            // Future explicit important-items support can hook in here without changing the current starred state.
           }}
           onClose={() => {
             setShowStarredMessages(false);
