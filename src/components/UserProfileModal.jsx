@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import client, { submitReport } from '../api/client.js';
 import { getDisplayName } from '../utils/getDisplayName.js';
+import { formatLastSeen } from '../utils/formatLastSeen.js';
 import {
   AI_BG_THEMES,
   readStoredAiBg,
@@ -114,10 +115,11 @@ export default function UserProfileModal({
     if (lastSeenSetting === 'nobody' || !p.lastLoginAt) {
       return { label: t('profile.lastSeenHidden', 'Last seen hidden'), online: false };
     }
+    const when = formatLastSeen(p.lastLoginAt, { prefix: '' });
     return {
       label: t('profile.lastSeenAt', {
-        time: new Date(p.lastLoginAt).toLocaleString(),
-        defaultValue: `Last seen ${new Date(p.lastLoginAt).toLocaleString()}`
+        time: when,
+        defaultValue: `Last seen ${when}`,
       }),
       online: false,
     };
