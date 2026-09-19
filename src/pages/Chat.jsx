@@ -58,6 +58,7 @@ import MessageInfoModal from "../components/MessageInfoModal.jsx";
 import MessageSearch from "../components/MessageSearch.jsx";
 import SettingsModal from "../components/SettingsModal.jsx";
 import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
+import TimeCapsuleModal from "../components/TimeCapsuleModal.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
 import BottomSheet from "../components/ui/BottomSheet.jsx";
@@ -96,18 +97,17 @@ import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../the
 import activityStore from "../utils/activityStore.js";
 import {
   getArchivedChatKeys,
-  getPinnedChatKeys,
   getChatDraft,
   getInfoPanelOpen,
-  getLastQuickReaction,
   getMutedChatKeys,
+  getPinnedChatKeys,
   isChatMuted,
   saveChatDraft,
   setInfoPanelOpen,
   setLastQuickReaction,
   toggleArchiveChat,
   toggleMuteChat,
-  togglePinChat,
+  togglePinChat
 } from "../utils/chatPrefs.js";
 import {
   chatPathForSelection,
@@ -349,9 +349,11 @@ export default function Chat() {
   const [uploads, setUploads] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const [capsuleUnlocksAt, setCapsuleUnlocksAt] = useState("");
+  const [showCapsulePicker, setShowCapsulePicker] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [mediaPreviewSending, setMediaPreviewSending] = useState(false);
-   const [mediaCompressing, setMediaCompressing] = useState(false);
+  const [mediaCompressing, setMediaCompressing] = useState(false);
   const [mediaCompressProgress, setMediaCompressProgress] = useState(0);
   const [mediaCompressPhase, setMediaCompressPhase] = useState('encoding');
   const [videoPlayer, setVideoPlayer] = useState(null);
@@ -1521,6 +1523,9 @@ useEffect(() => {
           }
         }
         const decoratedForNotif = decorate(raw);
+              if (raw.timeCapsule && raw.capsuleDeliveredAt) {
+        showToast('✨ A time capsule just unlocked!', 'success', 5000);
+      }
         const storyPayload = parseStoryPayload(decoratedForNotif.text);
         const reactionsExcluded =
           notifSettings?.messageNotifications === "all_except_reactions" &&
@@ -4542,6 +4547,8 @@ useEffect(() => {
         const plaintext = draft;
 
         setDraft("");
+        setCapsuleUnlocksAt("");
+        setShowCapsulePicker(false);
         setReplyTo(null);
         setMentionOpen(false);
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -4576,6 +4583,10 @@ useEffect(() => {
           const body = { to: selected.id, forRecipient, forSender };
           if (replySnapshot) body.replyTo = replySnapshot.id || replySnapshot._id;
           if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
+          if (capsuleUnlocksAt) {
+            body.timeCapsule = true;
+            body.unlocksAt = new Date(capsuleUnlocksAt).toISOString();
+          }
           const forwardPolicy = buildForwardPolicy();
           if (forwardPolicy) body.forwardPolicy = forwardPolicy;
           const { data } = await client.post("/messages", body);
@@ -7825,6 +7836,15 @@ useEffect(() => {
         }}
       />
 
+      <TimeCapsuleModal
+  open={showCapsulePicker}
+  onCancel={() => setShowCapsulePicker(false)}
+  onConfirm={(iso) => {
+    setCapsuleUnlocksAt(iso);
+    setShowCapsulePicker(false);
+  }}
+/>
+
       <ImageLightbox
         isOpen={Boolean(gallery)}
         items={gallery?.items || []}
@@ -7911,6 +7931,8 @@ useEffect(() => {
           const i = steps.indexOf(disappearSeconds);
           setDisappearSeconds(steps[(i + 1) % steps.length]);
         }}
+        onTimeCapsule={() => setShowCapsulePicker(true)}
+        capsuleActive={Boolean(capsuleUnlocksAt)}
         allowForward={allowForward}
         onToggleForward={() => setAllowForward((v) => !v)}
         forwardUntilSeconds={forwardUntilSeconds}
@@ -8007,6 +8029,20 @@ useEffect(() => {
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
         onShowInfo={handleShowMessageInfo}
       />
+
+      {capsuleUnlocksAt && (
+  <div className="capsule-picker-row">
+    <span>⏳ Unlocks {new Date(capsuleUnlocksAt).toLocaleString()}</span>
+    <button
+      type="button"
+      className="capsule-picker-close"
+      title="Cancel time capsule"
+      onClick={() => setCapsuleUnlocksAt("")}
+    >
+      <X size={16} />
+    </button>
+  </div>
+)}
 
       {!isCompactChrome && (
         <InfoPanel
