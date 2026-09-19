@@ -1794,7 +1794,8 @@ export default function SettingsModal({
                   protected — other people cannot freely screenshot them on their
                   device (best-effort on web, stronger on mobile). Chats with people
                   who have not turned this on stay normal. Enabling it does not
-                  protect every chat you open.
+                  protect every chat you open, and it does not block screenshots of
+                  Settings or other app screens.
                 </p>
 
                 <div className="settings-shield-badges">

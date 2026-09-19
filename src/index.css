@@ -16097,30 +16097,27 @@ div.view-once-lock {
   opacity: 0.7;
 }
 
-/* Screenshot protection (web best-effort) */
+/* Screenshot protection (web best-effort) — scoped to the chat pane only */
 .qc-screenshot-flash {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 2147483646;
+  z-index: 80;
   background: #000;
   opacity: 0;
   pointer-events: none;
   transition: opacity 40ms linear;
+  border-radius: inherit;
 }
 .qc-screenshot-flash.is-active {
   opacity: 1;
 }
 
-html.qc-screenshot-protection.qc-screenshot-blur .chat-page,
-html.qc-screenshot-protection.qc-screenshot-blur .user-profile-modal,
-html.qc-screenshot-protection.qc-screenshot-blur .settings-modal,
-html.qc-screenshot-protection.qc-screenshot-blur .qc-shell {
+html.qc-screenshot-protection.qc-screenshot-blur .chat-main {
   filter: blur(18px);
   transition: filter 80ms ease;
 }
 
-html.qc-screenshot-protection .chat-page,
-html.qc-screenshot-protection .user-profile-modal {
+html.qc-screenshot-protection .chat-main {
   -webkit-user-select: none;
   user-select: none;
 }

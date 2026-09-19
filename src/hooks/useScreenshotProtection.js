@@ -3,15 +3,23 @@ import { useEffect, useRef } from 'react';
 /**
  * Best-effort screenshot protection for the web app.
  *
- * Blacks out only on known screenshot keyboard shortcuts
- * (PrintScreen, Win+Shift+S, Cmd+Shift+3/4/5).
+ * Blacks out only the protected chat surface (not the whole app) on known
+ * screenshot shortcuts (PrintScreen, Win+Shift+S, Cmd+Shift+3/4/5).
  *
- * Does NOT black out on normal tab/app switches — that made returning
- * to QuantumChat show a black screen.
+ * Settings / other app overlays stay capturable while a protected chat is
+ * open underneath.
  *
  * Browsers cannot fully block OS screenshots. Mobile uses FLAG_SECURE.
  */
-export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } = {}) {
+export function useScreenshotProtection(
+  enabled,
+  {
+    onAttempt,
+    scope = 'chat',
+    /** CSS selector for the region to black out (defaults to the open chat pane). */
+    targetSelector = '.chat-main',
+  } = {},
+) {
   const onAttemptRef = useRef(onAttempt);
   onAttemptRef.current = onAttempt;
   const flashTimerRef = useRef(null);
@@ -25,20 +33,29 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
     root.dataset.qcProtectScope = scope;
     root.classList.remove('qc-screenshot-blur');
 
+    function resolveTarget() {
+      return document.querySelector(targetSelector);
+    }
+
     function ensureOverlay() {
-      let overlay = document.getElementById('qc-screenshot-flash');
+      const target = resolveTarget();
+      if (!target) return null;
+
+      let overlay = target.querySelector(':scope > .qc-screenshot-flash');
       if (!overlay) {
+        // Remove any legacy fullscreen flash left on <body>.
+        document.getElementById('qc-screenshot-flash')?.remove();
         overlay = document.createElement('div');
-        overlay.id = 'qc-screenshot-flash';
         overlay.className = 'qc-screenshot-flash';
         overlay.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(overlay);
+        target.appendChild(overlay);
       }
       return overlay;
     }
 
     function setBlackout(active) {
       const overlay = ensureOverlay();
+      if (!overlay) return;
       if (active) {
         overlay.style.transition = 'none';
         overlay.classList.add('is-active');
@@ -50,6 +67,23 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
       }
     }
 
+    /** True when a non-chat app surface is on top — don't block capturing that. */
+    function isAppOverlayOpen() {
+      return Boolean(
+        document.querySelector(
+          [
+            '.settings-modal',
+            '.qc-settings-sheet',
+            '.create-group-overlay',
+            '.user-profile-modal',
+            '.vault-setup-overlay',
+            '.vault-unlock-overlay',
+            '[data-qc-app-overlay="true"]',
+          ].join(', '),
+        ),
+      );
+    }
+
     function notify(reason) {
       const now = Date.now();
       if (now - lastNotifyAtRef.current < 1600) return;
@@ -58,6 +92,7 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
     }
 
     function flashPrivacyOverlay(reason, holdMs = 1100) {
+      if (!resolveTarget()) return;
       if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
       setBlackout(true);
       notify(reason);
@@ -103,6 +138,8 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
 
     function onCaptureKey(e) {
       if (!isScreenshotChord(e)) return;
+      // Settings / profile / other app UI must remain capturable.
+      if (isAppOverlayOpen()) return;
       flashPrivacyOverlay('screenshot', 1200);
     }
 
@@ -129,7 +166,8 @@ export function useScreenshotProtection(enabled, { onAttempt, scope = 'chat' } =
       root.classList.remove('qc-screenshot-protection', 'qc-screenshot-blur');
       delete root.dataset.qcProtectScope;
       if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
+      document.querySelectorAll('.qc-screenshot-flash').forEach((el) => el.remove());
       document.getElementById('qc-screenshot-flash')?.remove();
     };
-  }, [enabled, scope]);
+  }, [enabled, scope, targetSelector]);
 }

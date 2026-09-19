@@ -3011,8 +3011,10 @@ useEffect(() => {
       }),
     [user?.id, selected, profileUserId, users, groups, resolveDmPeer],
   );
-  useScreenshotProtection(screenshotProtectionOn, {
+  // Only protect the open chat thread — Settings and other app overlays stay capturable.
+  useScreenshotProtection(screenshotProtectionOn && !showSettings, {
     scope: "chat",
+    targetSelector: ".chat-main",
     onAttempt: (reason) => {
       showToast(
         reason === "screenshot"
