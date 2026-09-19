@@ -8,11 +8,6 @@ import { useVault } from '../context/VaultContext.jsx';
 import UserAvatar from './UserAvatar.jsx';
 import { getDisplayName } from '../utils/getDisplayName.js';
 
-function isRecentlyActive(iso) {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < 5 * 60 * 1000;
-}
-
 function formatShortRelative(iso) {
   if (!iso) return '';
   const t = new Date(iso).getTime();
@@ -360,7 +355,7 @@ export default function ConversationList({
               hasAvatar={Boolean(c.peer?.hasAvatar)}
               className="conv-row-avatar"
             />
-            {(c.online ?? isRecentlyActive(c.lastLoginAt)) && <span className="online-dot" />}
+            {c.online && <span className="online-dot" />}
           </span>
         )}
       </span>
