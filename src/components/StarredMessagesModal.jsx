@@ -15,6 +15,12 @@ function getEntryText(entry) {
   return '[encrypted]';
 }
 
+function getAutomaticStatus(entry) {
+  if (entry?.importantSource === 'document') return 'Automatically saved · Document';
+  if (entry?.importantSource === 'link') return 'Automatically saved · Link';
+  return null;
+}
+
 function getStaticSenderName(entry, currentUserId, usernameById) {
   if (String(entry?.from) === String(currentUserId)) return 'You';
   if (usernameById && typeof usernameById.get === 'function') {
@@ -113,6 +119,7 @@ export default function StarredMessagesModal({
               const reasons = Array.isArray(entry.reasons) && entry.reasons.length
                 ? entry.reasons
                 : [entry.isStarred ? 'Starred' : null, entry.isImportant ? 'Important' : null].filter(Boolean);
+              const automaticStatus = getAutomaticStatus(entry);
               const conversationLabel = entry.conversationTitle || entry.title || 'Chat';
               const preview = getEntryText(entry);
 
@@ -146,7 +153,9 @@ export default function StarredMessagesModal({
                         <span className="important-message-sender">{senderName}</span>
                         <div className="important-message-badges" aria-label="Message reasons">
                           {reasons.includes('Starred') && <span className="important-message-badge starred"><Star size={12} fill="currentColor" strokeWidth={0} /> Starred</span>}
-                          {reasons.includes('Important') && <span className="important-message-badge important"><Pin size={12} strokeWidth={2.2} /> Important</span>}
+                          {automaticStatus ? (
+                            <span className="important-message-badge important"><Pin size={12} strokeWidth={2.2} /> {automaticStatus}</span>
+                          ) : reasons.includes('Important') && <span className="important-message-badge important"><Pin size={12} strokeWidth={2.2} /> Important</span>}
                         </div>
                       </div>
                       {conversationLabel && conversationLabel !== senderName && (
@@ -187,7 +196,7 @@ export default function StarredMessagesModal({
                   <div className="important-message-footer">
                     <span>{formatWhen(entry.createdAt)}</span>
                     <span className="important-message-status">
-                      {reasons.length > 1 ? `${reasons[0]} · ${reasons[1]}` : reasons[0] === 'Starred' ? 'Starred message' : reasons[0] === 'Important' ? 'Saved as important' : 'Important message'}
+                      {automaticStatus || (reasons.length > 1 ? `${reasons[0]} · ${reasons[1]}` : reasons[0] === 'Starred' ? 'Starred message' : reasons[0] === 'Important' ? 'Saved as important' : 'Important message')}
                     </span>
                   </div>
                 </article>

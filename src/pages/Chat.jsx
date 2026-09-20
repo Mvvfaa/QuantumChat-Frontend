@@ -130,15 +130,22 @@ import {
 } from "../utils/hiddenChats.js";
 import {
   clearAllStarred,
+  clearAutoImportantRemoval,
   deleteMessageForMe,
+  getAutoImportantRemovedIds,
   getDeletedForMeIds,
   getPinnedIds,
   getStarredEntries,
   getStarredIds,
+  rememberAutoImportantRemoval,
   restoreStarredEntries,
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
+import {
+  getAutomaticImportantSource,
+  isAutomaticImportantMessage,
+} from "../utils/importantMessages.js";
 import { getMessagePreviewText } from "../utils/messagePreview.js";
 import {
   buildGroupedNotificationText,
@@ -351,6 +358,7 @@ export default function Chat() {
   const [uploads, setUploads] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const importantEntriesRef = useRef([]);
   const [capsuleUnlocksAt, setCapsuleUnlocksAt] = useState("");
   const [showCapsulePicker, setShowCapsulePicker] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null);
@@ -1119,6 +1127,42 @@ useEffect(() => {
     if (hasLocalKeyring) void loadImportantMessages();
   }, [hasLocalKeyring, loadImportantMessages]);
 
+  useEffect(() => {
+    importantEntriesRef.current = importantEntries;
+  }, [importantEntries]);
+
+  const markMessageImportantIfNeeded = useCallback(async (rawMessage) => {
+    if (!rawMessage || !user?.id) return;
+    const messageId = String(rawMessage.id || rawMessage._id || '');
+    if (!messageId) return;
+    const alreadyImportant = importantEntriesRef.current.some((entry) => String(entry.id || entry._id) === messageId);
+    if (alreadyImportant) return;
+    const autoSource = getAutomaticImportantSource(rawMessage);
+    if (!autoSource) return;
+    if (getAutoImportantRemovedIds(user.id).includes(messageId)) return;
+
+    try {
+      await client.post(`/messages/${messageId}/important`);
+      setImportantEntries((current) => [{
+        ...rawMessage,
+        id: messageId,
+        title: rawMessage.title || 'Chat',
+        conversationId: rawMessage.conversationId || rawMessage.group || rawMessage.to || rawMessage.from,
+        type: rawMessage.group ? 'group' : 'dm',
+        hasAttachment: Boolean(rawMessage.attachment || rawMessage.attachments?.length),
+        attachmentFilename: rawMessage.attachment?.filename || rawMessage.attachments?.[0]?.filename || null,
+        text: rawMessage.text || rawMessage.content || null,
+        important: true,
+        isImportant: true,
+        importantAt: new Date().toISOString(),
+        importantSource: autoSource,
+      }, ...current]);
+    } catch (err) {
+      // Ignore duplicate or noisy auto-save failures; the backend already
+      // guards against repeated writes for the same message.
+    }
+  }, [user?.id]);
+
   const recordActivityFromMessage = useCallback(
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
@@ -1731,6 +1775,7 @@ useEffect(() => {
         }
         return next;
       });
+      void markMessageImportantIfNeeded(raw);
 
       if (String(raw.from) !== String(user.id)) {
         const socket = getSocket();
@@ -4984,6 +5029,7 @@ useEffect(() => {
         if (prev.some((m) => String(m.id || m._id) === id)) return prev;
         return [...prev, decorate(data.data)];
       });
+      void markMessageImportantIfNeeded(data.data);
       playSendSound();
       if (!quiet) showToast("File sent successfully", "success", 3000);
       setTimeout(() => scrollToBottom("smooth"), 50);
@@ -5510,6 +5556,10 @@ useEffect(() => {
     const existing = previous.some((entry) => String(entry.id || entry._id) === messageId);
 
     if (existing) {
+      const wasAutomatic = Boolean(getAutomaticImportantSource(message || previous.find((entry) => String(entry.id || entry._id) === messageId) || {}));
+      if (wasAutomatic) {
+        rememberAutoImportantRemoval(user.id, messageId);
+      }
       setImportantEntries((current) => current.filter((entry) => String(entry.id || entry._id) !== messageId));
       try {
         await client.delete(`/messages/${messageId}/important`);
@@ -5521,6 +5571,7 @@ useEffect(() => {
       return;
     }
 
+    clearAutoImportantRemoval(user.id, messageId);
     const rawConversation = selected;
     const optimistic = {
       ...message,
@@ -5534,6 +5585,7 @@ useEffect(() => {
       importantAt: new Date().toISOString(),
       hasAttachment: Boolean(message?.attachment),
       attachmentFilename: message?.attachment?.filename || null,
+      importantSource: getAutomaticImportantSource(message || {}),
     };
     setImportantEntries((current) => [optimistic, ...current]);
     try {

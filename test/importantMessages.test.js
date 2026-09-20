@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   addImportantEntry,
   filterImportantEntries,
+  getAutomaticImportantSource,
+  isAutomaticImportantMessage,
   isImportantEntry,
   normalizeImportantEntries,
   removeImportantEntry,
@@ -160,4 +162,56 @@ test('duplicate message IDs are never returned twice', () => {
   ];
   assert.equal(normalizeImportantEntries(entries).length, 1);
   assert.equal(filterImportantEntries(entries, 'important').length, 1);
+});
+
+test('messages with document attachments are marked important automatically', () => {
+  const result = isAutomaticImportantMessage({
+    text: 'Here is the final proposal.',
+    attachment: { filename: 'FYP-Proposal.pdf', mimetype: 'application/pdf' },
+  });
+  assert.equal(result, true);
+  assert.equal(getAutomaticImportantSource({
+    text: 'Here is the final proposal.',
+    attachment: { filename: 'FYP-Proposal.pdf', mimetype: 'application/pdf' },
+  }), 'document');
+});
+
+test('messages with URLs are marked important automatically', () => {
+  const result = isAutomaticImportantMessage({
+    text: 'Check this repo: https://github.com/example/repo',
+  });
+  assert.equal(result, true);
+  assert.equal(getAutomaticImportantSource({
+    text: 'Check this repo: https://github.com/example/repo',
+  }), 'link');
+});
+
+test('messages with both document and URL are auto important once', () => {
+  const result = isAutomaticImportantMessage({
+    text: 'Here is the repo: https://github.com/example/repo',
+    attachment: { filename: 'Report.pdf', mimetype: 'application/pdf' },
+  });
+  assert.equal(result, true);
+  assert.equal(getAutomaticImportantSource({
+    text: 'Here is the repo: https://github.com/example/repo',
+    attachment: { filename: 'Report.pdf', mimetype: 'application/pdf' },
+  }), 'document');
+});
+
+test('plain text and media-only messages do not auto-save as important', () => {
+  assert.equal(isAutomaticImportantMessage({ text: 'Normal update' }), false);
+  assert.equal(isAutomaticImportantMessage({ text: 'Nice photo', attachment: { filename: 'photo.jpg', mimetype: 'image/jpeg' } }), false);
+  assert.equal(isAutomaticImportantMessage({ text: 'Video', attachment: { filename: 'clip.mp4', mimetype: 'video/mp4' } }), false);
+  assert.equal(isAutomaticImportantMessage({ text: 'Voice memo', attachment: { filename: 'note.m4a', mimetype: 'audio/m4a' } }), false);
+});
+
+test('manual and automatic importance stay deduplicated and independent', () => {
+  const both = normalizeImportantEntries([
+    { id: 'm-both', isStarred: true, reason: 'starred' },
+    { id: 'm-both', isImportant: true, importantSource: 'document' },
+  ]);
+  assert.equal(both.length, 1);
+  assert.equal(both[0].isStarred, true);
+  assert.equal(both[0].isImportant, true);
+  assert.equal(filterImportantEntries(both, 'all').length, 1);
 });
