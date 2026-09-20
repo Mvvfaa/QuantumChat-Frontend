@@ -21221,7 +21221,7 @@ body.theme-light .chat-screenshot-shield {
 }
 
 
-/* —— Group Command Center —— */
+/* ï¿½ï¿½ Group Command Center ï¿½ï¿½ */
 .cc-modal {
   width: min(640px, 96vw);
 }
@@ -21548,4 +21548,81 @@ body.theme-light .chat-screenshot-shield {
 .cc-info-action-primary {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   border-color: color-mix(in srgb, var(--accent) 28%, var(--border-glass));
+}
+.story-caption-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+.story-caption-mode-toggle button {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+}
+.story-caption-mode-toggle button.active {
+  background: #ec4899;
+  border-color: #ec4899;
+  opacity: 1;
+}
+
+.story-composer-caption {
+  position: relative;
+  margin: 0 0 12px;
+}
+.story-caption-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: inherit;
+  font: inherit;
+}
+.story-caption-counter {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.story-caption-free-hint {
+  font-size: 13px;
+  opacity: 0.7;
+  margin: 0 0 12px;
+}
+
+.story-free-caption {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 6px 12px;
+  border-radius: 10px;
+  max-width: 80%;
+  user-select: none;
+  touch-action: none;
+  z-index: 5;
+}
+.story-free-caption.editable { cursor: grab; }
+.story-free-caption.dragging { cursor: grabbing; }
+.story-free-caption textarea {
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  width: 100%;
+  min-width: 60px;
+}
+
+.story-composer-preview,
+.story-viewer-media {
+  position: relative;
 }

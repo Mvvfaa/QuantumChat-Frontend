@@ -89,7 +89,7 @@ export function cacheKeyForStory(story) {
  * Concurrent callers share one in-flight request per story.
  */
 export async function resolveStoryMediaBlob(story, currentUserId, options = {}) {
-  const { signal, onDownloadProgress } = options;
+  const { signal, onDownloadProgress, precomputedUnlock } = options;
   const cacheKey = cacheKeyForStory(story);
   const cachedBlob = storyMediaBlobCache.get(cacheKey);
   if (cachedBlob) return cachedBlob;
@@ -99,14 +99,16 @@ export async function resolveStoryMediaBlob(story, currentUserId, options = {}) 
 
   const promise = (async () => {
     if (story.sealed) {
-      const unlocked = unlockStoryKey(story, currentUserId);
+      // Reuse the caller's unlock result if they already computed one — avoids
+      // running the full keyring/envelope unseal loop twice per view.
+      const unlocked = precomputedUnlock || unlockStoryKey(story, currentUserId);
       const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
       if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
         throw new Error('No decryption key available for this story');
       }
       const res = await client.get(`/stories/${story.id}/media`, {
         responseType: 'arraybuffer',
-        timeout: 90_000,
+        timeout: 30_000,
         signal,
         onDownloadProgress,
       });
@@ -123,7 +125,7 @@ export async function resolveStoryMediaBlob(story, currentUserId, options = {}) 
 
     const res = await client.get(`/stories/${story.id}/media`, {
       responseType: 'blob',
-      timeout: 90_000,
+      timeout: 30_000,
       signal,
       onDownloadProgress,
     });
