@@ -2,8 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  addImportantEntry,
   filterImportantEntries,
+  isImportantEntry,
   normalizeImportantEntries,
+  removeImportantEntry,
 } from '../src/utils/importantMessages.js';
 
 test('normalizeImportantEntries deduplicates identical message ids and merges labels', () => {
@@ -69,4 +72,92 @@ test('filterImportantEntries supports all, starred, and important filters with t
   const onlyImportant = filterImportantEntries(rows, 'important', '');
   assert.equal(onlyImportant.length, 1);
   assert.equal(onlyImportant[0].id, 'm-2');
+});
+
+test('important state can be added and removed independently', () => {
+  const starred = [{ id: 'm-1', starredAt: '2025-01-01T00:00:00.000Z' }];
+  const marked = addImportantEntry(starred, { id: 'm-1', text: 'both states' });
+  assert.equal(isImportantEntry(marked, 'm-1'), true);
+  assert.equal(normalizeImportantEntries(marked).length, 1);
+  assert.equal(normalizeImportantEntries(marked)[0].isStarred, true);
+
+  const removed = removeImportantEntry(marked, 'm-1');
+  assert.equal(isImportantEntry(removed, 'm-1'), false);
+  assert.equal(normalizeImportantEntries(removed)[0].isImportant, false);
+  assert.equal(normalizeImportantEntries(removed)[0].isStarred, true);
+});
+
+test('important-only and starred-only entries remain independent in filters', () => {
+  const entries = [
+    { id: 'starred', starredAt: '2025-01-01T00:00:00.000Z' },
+    { id: 'important', important: true, importantAt: '2025-01-02T00:00:00.000Z' },
+    { id: 'both', starredAt: '2025-01-03T00:00:00.000Z', important: true },
+  ];
+  assert.deepEqual(filterImportantEntries(entries, 'starred').map((entry) => entry.id).sort(), ['both', 'starred']);
+  assert.deepEqual(filterImportantEntries(entries, 'important').map((entry) => entry.id).sort(), ['both', 'important']);
+  assert.equal(filterImportantEntries(entries, 'all').length, 3);
+});
+
+test('marking a new message creates an Important entry', () => {
+  const marked = addImportantEntry([], { id: 'm-new', text: 'remember this' });
+  assert.equal(isImportantEntry(marked, 'm-new'), true);
+});
+
+test('removing an Important-only message removes its entry', () => {
+  const marked = addImportantEntry([], { id: 'm-remove' });
+  assert.equal(removeImportantEntry(marked, 'm-remove').length, 0);
+});
+
+test('starred-only messages appear in the Starred filter', () => {
+  const result = filterImportantEntries([{ id: 'm-star', starredAt: '2025-01-01T00:00:00.000Z' }], 'starred');
+  assert.deepEqual(result.map((entry) => entry.id), ['m-star']);
+});
+
+test('important-only messages appear in the Important filter', () => {
+  const result = filterImportantEntries([{ id: 'm-important', important: true }], 'important');
+  assert.deepEqual(result.map((entry) => entry.id), ['m-important']);
+});
+
+test('a message with both states appears once in All', () => {
+  const result = filterImportantEntries([
+    { id: 'm-both', starredAt: '2025-01-01T00:00:00.000Z' },
+    { id: 'm-both', important: true },
+  ], 'all');
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0].reasons, ['Starred', 'Important']);
+});
+
+test('a message with both states appears in both relevant filters', () => {
+  const entries = [{ id: 'm-both', starredAt: '2025-01-01T00:00:00.000Z', important: true }];
+  assert.equal(filterImportantEntries(entries, 'starred').length, 1);
+  assert.equal(filterImportantEntries(entries, 'important').length, 1);
+});
+
+test('removing Important preserves Starred', () => {
+  const both = addImportantEntry([{ id: 'm-both', starredAt: '2025-01-01T00:00:00.000Z' }], { id: 'm-both' });
+  const after = removeImportantEntry(both, 'm-both');
+  assert.equal(normalizeImportantEntries(after)[0].isStarred, true);
+  assert.equal(normalizeImportantEntries(after)[0].isImportant, false);
+});
+
+test('unstarred state does not remove an independent Important entry', () => {
+  const important = [{ id: 'm-important', important: true, importantAt: '2025-01-01T00:00:00.000Z' }];
+  assert.equal(filterImportantEntries(important, 'important').length, 1);
+  assert.equal(normalizeImportantEntries(important)[0].isImportant, true);
+});
+
+test('search matches text and sender or conversation metadata', () => {
+  const entries = [{ id: 'm-search', important: true, text: 'FYP meeting', senderName: 'Mustafa', title: 'Design group' }];
+  assert.equal(filterImportantEntries(entries, 'important', 'fyp').length, 1);
+  assert.equal(filterImportantEntries(entries, 'important', 'mustafa').length, 1);
+  assert.equal(filterImportantEntries(entries, 'important', 'missing').length, 0);
+});
+
+test('duplicate message IDs are never returned twice', () => {
+  const entries = [
+    { id: 'duplicate', important: true },
+    { id: 'duplicate', important: true, text: 'latest copy' },
+  ];
+  assert.equal(normalizeImportantEntries(entries).length, 1);
+  assert.equal(filterImportantEntries(entries, 'important').length, 1);
 });

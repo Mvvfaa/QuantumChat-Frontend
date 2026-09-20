@@ -336,6 +336,8 @@ export default function Chat() {
     getDeletedForMeIds(user?.id),
   );
   const [starredIds, setStarredIds] = useState(() => getStarredIds(user?.id));
+  const [importantEntries, setImportantEntries] = useState([]);
+  const [importantLoading, setImportantLoading] = useState(false);
   const [showStarredMessages, setShowStarredMessages] = useState(false);
   const [showChatMedia, setShowChatMedia] = useState(false);
   const [starredScope, setStarredScope] = useState('all'); // 'all' | 'chat'
@@ -1068,6 +1070,54 @@ useEffect(() => {
     },
     [user, resolveMySecretKey],
   );
+
+  const loadImportantMessages = useCallback(async () => {
+    if (!user?.id) return;
+    setImportantLoading(true);
+    try {
+      const { data } = await client.get('/messages/important');
+      const markedAtById = new Map(
+        (data?.data?.entries || []).map((entry) => [String(entry.messageId), entry.markedAt]),
+      );
+      const next = (data?.data?.messages || []).map((raw) => {
+        const message = decorate(raw);
+        const messageId = String(message.id || message._id);
+        const groupId = raw.group ? String(raw.group) : null;
+        const group = groupId ? groups.find((candidate) => String(candidate.id) === groupId) : null;
+        const peerId = raw.group
+          ? groupId
+          : String(raw.from) === String(user.id) ? raw.to : raw.from;
+        const peer = peerId ? users.find((candidate) => String(candidate.id) === String(peerId)) : null;
+        const type = groupId ? 'group' : 'dm';
+        const title = group?.name || getDisplayName(peer, i18n.language) || 'Chat';
+        return {
+          ...message,
+          id: messageId,
+          type,
+          conversationId: groupId || peerId,
+          conversationKey: groupId ? conversationKeyForGroup(groupId) : conversationKeyForUser(peerId),
+          title,
+          from: raw.from,
+          createdAt: raw.createdAt,
+          hasAttachment: Boolean(message.attachment),
+          attachmentFilename: message.attachment?.filename || null,
+          important: true,
+          isImportant: true,
+          importantAt: markedAtById.get(messageId) || null,
+        };
+      });
+      setImportantEntries(next);
+    } catch (err) {
+      setImportantEntries([]);
+      showToast(err.response?.data?.error || "Couldn't load Important messages", 'error');
+    } finally {
+      setImportantLoading(false);
+    }
+  }, [decorate, getDisplayName, groups, i18n.language, showToast, user?.id, users]);
+
+  useEffect(() => {
+    if (hasLocalKeyring) void loadImportantMessages();
+  }, [hasLocalKeyring, loadImportantMessages]);
 
   const recordActivityFromMessage = useCallback(
     (raw) => {
@@ -5450,6 +5500,51 @@ useEffect(() => {
     setExtrasTick((n) => n + 1);
   }
 
+  async function handleImportantMessage(messageOrId) {
+    const messageId = String(messageOrId?.id || messageOrId?._id || messageOrId || '');
+    if (!messageId) return;
+    const message = typeof messageOrId === 'object'
+      ? messageOrId
+      : messages.find((candidate) => String(candidate.id || candidate._id) === messageId);
+    const previous = importantEntries;
+    const existing = previous.some((entry) => String(entry.id || entry._id) === messageId);
+
+    if (existing) {
+      setImportantEntries((current) => current.filter((entry) => String(entry.id || entry._id) !== messageId));
+      try {
+        await client.delete(`/messages/${messageId}/important`);
+        showToast('Removed from Important messages', 'success');
+      } catch (err) {
+        setImportantEntries(previous);
+        showToast(err.response?.data?.error || "Couldn't remove message. Try again.", 'error');
+      }
+      return;
+    }
+
+    const rawConversation = selected;
+    const optimistic = {
+      ...message,
+      id: messageId,
+      type: rawConversation?.type || (message?.group ? 'group' : 'dm'),
+      conversationId: rawConversation?.id || (message?.group ? message.group : message?.from),
+      conversationKey: rawConversation?.key || null,
+      title: rawConversation?.title || 'Chat',
+      isImportant: true,
+      important: true,
+      importantAt: new Date().toISOString(),
+      hasAttachment: Boolean(message?.attachment),
+      attachmentFilename: message?.attachment?.filename || null,
+    };
+    setImportantEntries((current) => [optimistic, ...current]);
+    try {
+      await client.post(`/messages/${messageId}/important`);
+      showToast('Message saved to Important messages', 'success');
+    } catch (err) {
+      setImportantEntries(previous);
+      showToast(err.response?.data?.error || "Couldn't save message. Try again.", 'error');
+    }
+  }
+
   async function handlePinMessage(messageId) {
     if (!selected?.key) return;
     if (selected.type === "group") {
@@ -6832,6 +6927,7 @@ useEffect(() => {
                               resolveSecretKey={resolveMySecretKey}
                               grouped={isGrouped}
                               starred={starredIds.map(String).includes(mid)}
+                              important={importantEntries.some((entry) => String(entry.id || entry._id) === mid)}
                               pinned={pinnedIds.map(String).includes(mid)}
                               showReadReceipts={
                                 user.privacy?.readReceipts !== false &&
@@ -6871,6 +6967,7 @@ useEffect(() => {
                               onCopy={handleCopyMessage}
                               onForward={setForwardMessage}
                               onStar={handleStarMessage}
+                              onImportant={handleImportantMessage}
                               onPin={handlePinMessage}
                               onVotePoll={
                                 isGroupChat ? handleVotePoll : undefined
@@ -7778,9 +7875,9 @@ useEffect(() => {
       {showStarredMessages && (
         <StarredMessagesModal
           entries={
-            starredScope === 'chat' && selected
-              ? getStarredEntries(user.id).filter((e) => e.conversationKey === selected.key)
-              : getStarredEntries(user.id)
+            (starredScope === 'chat' && selected
+              ? [...importantEntries, ...getStarredEntries(user.id)].filter((e) => e.conversationKey === selected.key)
+              : [...importantEntries, ...getStarredEntries(user.id)])
           }
           usernameById={usernameById}
           currentUserId={user.id}
@@ -7798,9 +7895,8 @@ useEffect(() => {
             setStarredIds(nextIds);
             setExtrasTick((n) => n + 1);
           }}
-          onRemoveImportant={() => {
-            // Future explicit important-items support can hook in here without changing the current starred state.
-          }}
+          onRemoveImportant={handleImportantMessage}
+          loading={importantLoading}
           onClose={() => {
             setShowStarredMessages(false);
             setStarredScope('all');
@@ -7998,6 +8094,13 @@ useEffect(() => {
               )
             : false
         }
+        important={
+          actionSheetMessage
+            ? importantEntries.some(
+              (entry) => String(entry.id || entry._id) === String(actionSheetMessage.id || actionSheetMessage._id),
+            )
+            : false
+        }
         pinned={
           actionSheetMessage
             ? pinnedIds
@@ -8037,6 +8140,7 @@ useEffect(() => {
           handleDeleteMessage(msg?.id || msg?._id || msg)
         }
         onStar={(msg) => handleStarMessage(msg?.id || msg?._id || msg)}
+        onImportant={handleImportantMessage}
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
         onShowInfo={handleShowMessageInfo}
       />

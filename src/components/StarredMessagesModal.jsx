@@ -105,7 +105,7 @@ export default function StarredMessagesModal({
             <div className="important-message-empty" role="status">
               <div className="important-message-empty-icon" aria-hidden="true">⭐</div>
               <h3>No important messages</h3>
-              <p>Star messages or save messages as important to find them here later.</p>
+              <p>Save messages here to find them quickly later. Starred messages will also appear here.</p>
             </div>
           ) : (
             visibleEntries.map((entry) => {

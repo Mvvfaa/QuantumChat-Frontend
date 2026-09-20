@@ -59,3 +59,38 @@ export function filterImportantEntries(entries = [], filter = 'all', query = '')
 
   return filtered;
 }
+
+export function isImportantEntry(entries = [], messageId) {
+  return (Array.isArray(entries) ? entries : [])
+    .some((entry) =>
+      String(entry?.id ?? entry?._id) === String(messageId) &&
+      Boolean(entry?.isImportant || entry?.important || entry?.importantAt),
+    );
+}
+
+export function addImportantEntry(entries = [], entry) {
+  if (!entry || (entry.id == null && entry._id == null)) return entries;
+  const id = String(entry.id ?? entry._id);
+  const existing = Array.isArray(entries)
+    ? entries.find((item) => String(item?.id ?? item?._id) === id)
+    : null;
+  return [
+    { ...existing, ...entry, id, important: true, isImportant: true, importantAt: entry.importantAt || existing?.importantAt || new Date().toISOString() },
+    ...(Array.isArray(entries) ? entries.filter((item) => String(item?.id ?? item?._id) !== id) : []),
+  ];
+}
+
+export function removeImportantEntry(entries = [], messageId) {
+  return (Array.isArray(entries) ? entries : [])
+    .flatMap((entry) => {
+      if (String(entry?.id ?? entry?._id) !== String(messageId)) return [entry];
+      if (entry.starredAt || entry.isStarred || entry.starred) {
+        const next = { ...entry };
+        delete next.important;
+        delete next.isImportant;
+        delete next.importantAt;
+        return [next];
+      }
+      return [];
+    });
+}
