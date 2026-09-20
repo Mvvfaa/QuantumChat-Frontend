@@ -549,6 +549,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       form.append('ttlMs', String(ttlMs));
       form.append('allowReplies', String(allowReplies));
       form.append('viewOnce', String(Boolean(options.viewOnce)));
+      form.append('caption', options.caption || '');
       form.append('status', status);
       if (status === 'scheduled' && options.publishAt) {
         form.append('publishAt', options.publishAt);

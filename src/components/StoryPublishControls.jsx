@@ -27,6 +27,7 @@ export function useStoryPublishOptions(initialTtl = DEFAULT_TTL_MS) {
   const [viewOnce, setViewOnce] = useState(false);
   const [scheduleMode, setScheduleMode] = useState(false);
   const [scheduleLocal, setScheduleLocal] = useState(defaultScheduleLocalValue);
+  const [caption, setCaption] = useState('');
 
   function computeTtlMs() {
     if (customMode) {
@@ -41,9 +42,9 @@ export function useStoryPublishOptions(initialTtl = DEFAULT_TTL_MS) {
     }
     return preset;
   }
-
   function buildOptions(status) {
     const opts = { status: status || 'published', viewOnce };
+    opts.caption = caption.trim().slice(0, 200);
     if (opts.status === 'scheduled') {
       const at = new Date(scheduleLocal);
       if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + 30_000) {
@@ -71,6 +72,8 @@ export function useStoryPublishOptions(initialTtl = DEFAULT_TTL_MS) {
     setScheduleMode,
     scheduleLocal,
     setScheduleLocal,
+    caption,
+    setCaption,
     computeTtlMs,
     buildOptions,
     TTL_PRESETS,
@@ -124,6 +127,20 @@ export function StoryPublishControls({
 }) {
   return (
     <>
+      <div className="story-composer-caption">
+        <textarea
+          className="story-caption-input"
+          value={opts.caption}
+          disabled={busy}
+          maxLength={200}
+          rows={2}
+          placeholder="Add a caption…"
+          onChange={(e) => opts.setCaption(e.target.value)}
+          aria-label="Story caption"
+        />
+        <span className="story-caption-counter">{opts.caption.length}/200</span>
+      </div>
+
       <div className="story-composer-ttl">
         <p className="story-composer-ttl-label">Visible for</p>
         <div className="story-composer-ttl-presets" role="group" aria-label="Story duration">
