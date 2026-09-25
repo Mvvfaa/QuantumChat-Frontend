@@ -8752,6 +8752,15 @@ body.theme-light .story-reaction-picker {
   font-size: 13px;
   color: var(--text-secondary);
 }
+.story-mentions-line {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+.story-mentions-line .mention-chip {
+  font-weight: 600;
+}
 .story-viewer-actions {
   display: flex;
   justify-content: flex-end;

@@ -2,6 +2,19 @@ import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paper
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
+import { connectSocket, getSocket } from '../api/socket.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage } from '../crypto/keys.js';
+import {
+  findSecretKeyForPublicKey,
+  getCurrentKeySet,
+  getKeyringSyncStatus,
+  getStoredUser
+} from '../crypto/keyStorage.js';
+import { compressVideo } from '../crypto/videoCompressor.js';
+import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
+import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
+import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia } from '../utils/offlineMediaQueue.js';
 import {
   cacheKeyForStory,
   resolveStoryMediaBlob,
@@ -10,28 +23,14 @@ import {
   unlockStoryKey,
   viewerCanSeeStory,
 } from '../utils/storyMedia.js';
-import { connectSocket, getSocket } from '../api/socket.js';
-import { useAuth } from '../context/AuthContext.jsx';
-import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage, unsealMessage } from '../crypto/keys.js';
-import {
-  findSecretKeyForPublicKey,
-  getCurrentKeySet,
-  getKeyring,
-  getKeyringSyncStatus,
-  getStoredUser
-} from '../crypto/keyStorage.js';
-import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
-import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import HighlightPickerSheet from './HighlightPickerSheet.jsx';
+import StoryCaptionOverlay from './StoryCaptionOverlay.jsx';
 import StoryHistoryPanel from './StoryHistoryPanel.jsx';
 import { StoryLocalPreview, StoryPublishControls, useStoryPublishOptions } from './StoryPublishControls.jsx';
-import StoryCaptionOverlay from './StoryCaptionOverlay.jsx';
 import TextStoryComposer from './TextStoryComposer.jsx';
 import { useToast } from './ToastProvider.jsx';
 import UserAvatar from './UserAvatar.jsx';
-import { compressVideo } from '../crypto/videoCompressor.js';
-import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia } from '../utils/offlineMediaQueue.js';
 const MAX_STORY_SECONDS = 60;
 const MAX_STORY_UPLOAD_BYTES = 95 * 1024 * 1024; // stay under server 100MB limit
 const COMPRESS_IF_LARGER_THAN = 4 * 1024 * 1024; // compress status videos over ~4MB
@@ -174,6 +173,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [stories, setStories] = useState([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [viewer, setViewer] = useState(null);
+  const [storyMentions, setStoryMentions] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadPhase, setUploadPhase] = useState(''); // '', 'compress', 'encrypt', 'upload'
   const [composerError, setComposerError] = useState('');
@@ -191,6 +191,12 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
   const mediaInputRef = useRef(null);
   const audioInputRef = useRef(null);
+  const storyFriends = useMemo(() => {
+      const friendSet = new Set((currentUser?.friends || []).map(String));
+      return (users || [])
+        .filter((u) => u?.id && friendSet.has(String(u.id)))
+        .map((u) => ({ id: String(u.id), username: u.username, hasAvatar: u.hasAvatar }));
+    }, [users, currentUser?.friends]);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -552,6 +558,9 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       form.append('viewOnce', String(Boolean(options.viewOnce)));
       form.append('caption', options.caption || '');
       form.append('captionMode', options.captionMode || 'fixed');
+      if (Array.isArray(options.mentions) && options.mentions.length) {
+        form.append('mentions', JSON.stringify(options.mentions));
+      }
       if (options.captionMode === 'free' && options.captionStyle) {
         form.append('captionStyle', JSON.stringify(options.captionStyle));
       }
@@ -809,6 +818,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         <StoryComposer
          file={pendingQueue[pendingIndex]}
           previewUrl={pendingPreviewUrl}
+          friends={storyFriends}
           onCancel={closeComposer}
           onConfirm={confirmPostStory}
           uploading={uploading}
@@ -821,6 +831,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       )}
             {textComposerOpen && !pendingQueue.length && (
         <TextStoryComposer
+        friends={storyFriends}
           onCancel={() => setTextComposerOpen(false)}
           onConfirm={confirmPostTextStory}
           uploading={uploading}
@@ -1796,6 +1807,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         {story.caption && story.captionMode !== 'free' && (
           <p className="story-caption">{story.caption}</p>
         )}
+        {Array.isArray(story.mentions) && story.mentions.length > 0 && (
+          <p className="story-mentions-line">
+            with{' '}
+            {story.mentions.map((m, i) => (
+              <span key={m.user.id} className="mention-chip">
+                {m.visibility === 'hidden' ? '🔒 ' : ''}
+                @{m.user.username}
+                {i < story.mentions.length - 1 ? ', ' : ''}
+              </span>
+            ))}
+          </p>
+        )}
         <div className="story-viewer-actions">
             {isOwn && (
               <div className="story-viewer-actions-left">
@@ -2103,6 +2126,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 function StoryComposer({
   file,
   previewUrl,
+  friends = [],
   onCancel,
   onConfirm,
   uploading,
@@ -2211,6 +2235,7 @@ function StoryComposer({
 
         <StoryPublishControls
           opts={opts}
+          friends={friends}
           busy={uploading}
           canSubmit={!uploading}
           busyLabel={busyPostLabel}
