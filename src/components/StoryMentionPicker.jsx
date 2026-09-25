@@ -1,97 +1,103 @@
-import { useMemo, useState } from 'react';
-import UserAvatar from './UserAvatar.jsx';
+import { useMemo, useRef, useState } from 'react';
 
-export default function StoryMentionPicker({ friends, selected, onChange, disabled }) {
+export default function StoryMentionPicker({ friends, selected, onChange }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const blurTimer = useRef(null);
 
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase();
     const pickedIds = new Set(selected.map((s) => s.id));
     return (friends || [])
-      .filter((f) => f?.id && !pickedIds.has(String(f.id)))
+      .filter((f) => !pickedIds.has(f.id))
       .filter((f) => !q || f.username?.toLowerCase().includes(q))
-      .slice(0, 8);
+      .slice(0, 20);
   }, [friends, selected, query]);
 
   function addMention(f) {
-    onChange([...selected, { id: String(f.id), username: f.username, hasAvatar: f.hasAvatar, visibility: 'public' }]);
+    onChange([...selected, { id: f.id, username: f.username, visibility: 'public' }]);
     setQuery('');
+    setOpen(false);
   }
 
   function removeMention(id) {
     onChange(selected.filter((m) => m.id !== id));
   }
 
-  function toggleVisibility(id) {
-    onChange(
-      selected.map((m) => (m.id === id ? { ...m, visibility: m.visibility === 'public' ? 'hidden' : 'public' } : m))
-    );
+  function setVisibility(id, visibility) {
+    onChange(selected.map((m) => (m.id === id ? { ...m, visibility } : m)));
+  }
+
+  function handleFocus() {
+    if (blurTimer.current) {
+      clearTimeout(blurTimer.current);
+      blurTimer.current = null;
+    }
+    setOpen(true);
+  }
+
+  function handleBlur() {
+    // Delay closing so a click on a suggestion below registers before the
+    // dropdown disappears (a plain onBlur would fire first and hide it).
+    blurTimer.current = setTimeout(() => setOpen(false), 150);
   }
 
   return (
     <div className="story-mention-picker">
-      <p className="story-mention-picker-label">Tag people</p>
-      <div className="story-mention-input-row">
-        <input
-          type="text"
-          className="story-mention-input"
-          placeholder="Tag a friend…"
-          value={query}
-          disabled={disabled}
-          onFocus={() => setOpen(true)}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-          }}
-        />
-      </div>
+      <input
+        type="text"
+        placeholder="Tag a friend…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+      />
       {open && candidates.length > 0 && (
         <div className="story-mention-suggestions">
           {candidates.map((f) => (
             <button
               type="button"
               key={f.id}
-              className="story-mention-suggestion"
-              disabled={disabled}
-              onClick={() => {
-                addMention(f);
-                setOpen(false);
-              }}
+              className="story-mention-suggestion-row"
+              onMouseDown={(e) => e.preventDefault()} // keep input focus so onBlur's timer doesn't race the click
+              onClick={() => addMention(f)}
             >
-              <UserAvatar userId={f.id} name={f.username} hasAvatar={f.hasAvatar} size="sm" />
-              <span>@{f.username}</span>
+              @{f.username}
             </button>
           ))}
         </div>
       )}
-      {open && query.trim() && candidates.length === 0 && (
-        <p className="story-mention-empty">No friends match "{query.trim()}"</p>
+      {open && candidates.length === 0 && (friends || []).length > 0 && (
+        <div className="story-mention-suggestions story-mention-empty">
+          {query ? 'No matching friends' : "You've tagged everyone available"}
+        </div>
       )}
+
       {selected.length > 0 && (
         <div className="story-mention-chips">
           {selected.map((m) => (
-            <span key={m.id} className={`story-mention-chip ${m.visibility}`}>
-              @{m.username}
-              <button
-                type="button"
-                className="story-mention-chip-visibility"
-                disabled={disabled}
-                onClick={() => toggleVisibility(m.id)}
-                title={m.visibility === 'public' ? 'Visible to anyone who sees this story' : 'Only you can see this tag'}
-              >
-                {m.visibility === 'public' ? '👁 Public' : '🔒 Hidden'}
-              </button>
-              <button
-                type="button"
-                className="story-mention-chip-remove"
-                disabled={disabled}
-                onClick={() => removeMention(m.id)}
-                aria-label={`Remove tag @${m.username}`}
-              >
+            <div key={m.id} className="story-mention-chip">
+              <span className="story-mention-chip-name">@{m.username}</span>
+              <div className="story-mention-visibility-toggle">
+                <button
+                  type="button"
+                  className={m.visibility === 'public' ? 'is-active' : ''}
+                  onClick={() => setVisibility(m.id, 'public')}
+                >
+                  👁 Public
+                </button>
+                <button
+                  type="button"
+                  className={m.visibility === 'hidden' ? 'is-active' : ''}
+                  onClick={() => setVisibility(m.id, 'hidden')}
+                >
+                  🔒 Hidden
+                </button>
+              </div>
+              <button type="button" className="story-mention-remove" onClick={() => removeMention(m.id)} title="Remove tag">
                 ×
               </button>
-            </span>
+            </div>
           ))}
         </div>
       )}

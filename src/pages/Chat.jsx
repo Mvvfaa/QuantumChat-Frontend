@@ -1101,6 +1101,15 @@ useEffect(() => {
     [user, resolveMySecretKey],
   );
 
+  // Refs so Important-messages mapping can use latest directory/decrypt
+  // helpers without re-fetching (and re-toasting) every time users/groups change.
+  const importantDecorateRef = useRef(decorate);
+  importantDecorateRef.current = decorate;
+  const importantUsersRef = useRef(users);
+  importantUsersRef.current = users;
+  const importantGroupsRef = useRef(groups);
+  importantGroupsRef.current = groups;
+
   const loadImportantMessages = useCallback(async () => {
     if (!user?.id) return;
     setImportantLoading(true);
@@ -1109,15 +1118,21 @@ useEffect(() => {
       const markedAtById = new Map(
         (data?.data?.entries || []).map((entry) => [String(entry.messageId), entry.markedAt]),
       );
+      const directoryUsers = importantUsersRef.current;
+      const directoryGroups = importantGroupsRef.current;
       const next = (data?.data?.messages || []).map((raw) => {
-        const message = decorate(raw);
+        const message = importantDecorateRef.current(raw);
         const messageId = String(message.id || message._id);
         const groupId = raw.group ? String(raw.group) : null;
-        const group = groupId ? groups.find((candidate) => String(candidate.id) === groupId) : null;
+        const group = groupId
+          ? directoryGroups.find((candidate) => String(candidate.id) === groupId)
+          : null;
         const peerId = raw.group
           ? groupId
           : String(raw.from) === String(user.id) ? raw.to : raw.from;
-        const peer = peerId ? users.find((candidate) => String(candidate.id) === String(peerId)) : null;
+        const peer = peerId
+          ? directoryUsers.find((candidate) => String(candidate.id) === String(peerId))
+          : null;
         const type = groupId ? 'group' : 'dm';
         const title = group?.name || getDisplayName(peer, i18n.language) || 'Chat';
         return {
@@ -1139,11 +1154,18 @@ useEffect(() => {
       setImportantEntries(next);
     } catch (err) {
       setImportantEntries([]);
-      showToast(err.response?.data?.error || "Couldn't load Important messages", 'error');
+      // Background prefetch — never surface raw validation noise like
+      // "Invalid user id" (happens when an older API treats "important" as a
+      // peer id). Chat itself still works.
+      const status = err.response?.status;
+      const msg = err.response?.data?.error || '';
+      if (status && status !== 400 && status !== 404 && msg !== 'Invalid user id') {
+        showToast(msg || "Couldn't load Important messages", 'error');
+      }
     } finally {
       setImportantLoading(false);
     }
-  }, [decorate, getDisplayName, groups, i18n.language, showToast, user?.id, users]);
+  }, [getDisplayName, i18n.language, showToast, user?.id]);
 
   useEffect(() => {
     if (hasLocalKeyring) void loadImportantMessages();
@@ -2658,6 +2680,14 @@ useEffect(() => {
     const threadKey = selectedKey;
     const threadType = selectedType;
     const threadId = selectedId;
+    // DMs must use a real Mongo ObjectId — reserved paths like "important"
+    // or "settings" must never hit GET /messages/:userId.
+    if (
+      threadType === "dm" &&
+      !/^[a-f0-9]{24}$/i.test(String(threadId))
+    ) {
+      return undefined;
+    }
     const switching = loadedThreadKeyRef.current !== threadKey;
     loadedThreadKeyRef.current = threadKey;
 
@@ -2710,12 +2740,13 @@ useEffect(() => {
         }
         setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
-      .catch((err) =>
+      .catch((err) => {
+        if (cancelled) return;
         showToastRef.current(
           err.response?.data?.error || "Failed to load messages",
           "error",
-        ),
-      )
+        );
+      })
       .finally(() => {
         if (!cancelled) setLoadingMessages(false);
       });
@@ -4481,7 +4512,7 @@ useEffect(() => {
           prompt.replace(/@QuantumAI\b/gi, "").trim() ||
           "Help with this conversation.",
         context,
-        link: { groupId: selected.id },
+        link: { groupId: selected.id, quantumChatPeerId: user.id },
         ephemeral: true,
         signal: controller.signal,
         onDone: (payload) => {

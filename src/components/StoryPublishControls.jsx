@@ -134,6 +134,7 @@ export function StoryLocalPreview({ file, previewUrl, onClose }) {
 export function StoryPublishControls({
   opts,
   friends = [],
+  mentionCandidates = [],
   busy,
   canSubmit,
   onPreview,
@@ -186,15 +187,6 @@ export function StoryPublishControls({
         <p className="story-caption-free-hint">
           Drag the caption directly on the photo above to place it anywhere.
         </p>
-      )}
-
-      {friends.length > 0 && (
-        <StoryMentionPicker
-          friends={friends}
-          selected={opts.mentions}
-          onChange={opts.setMentions}
-          disabled={busy}
-        />
       )}
 
       <div className="story-composer-ttl">
@@ -268,6 +260,15 @@ export function StoryPublishControls({
           />
           <span>View once — disappears for each viewer right after they open it</span>
         </label>
+       
+      {friends.length > 0 && (
+        <StoryMentionPicker
+          friends={friends}
+          selected={opts.mentions}
+          onChange={opts.setMentions}
+          disabled={busy}
+        />
+      )}
         <div className="story-schedule-block">
           <label className="story-composer-check">
             <input

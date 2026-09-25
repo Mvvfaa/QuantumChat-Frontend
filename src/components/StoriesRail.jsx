@@ -471,7 +471,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           id: clientStoryId,
           type: 'story',
           conversationKey: `story:${currentUser.id}`,
-          filename: fileToUpload.name || 'story.bin',
+          filename: fileToUpload.name || 'story.enc',
           mimetype: fileToUpload.type || 'application/octet-stream',
           sourceBytes: new Uint8Array(await fileToUpload.arrayBuffer()),
           storyOptions: { ttlMs, allowReplies, options: { ...options, clientStoryId, skipOutbox: true } },
@@ -537,7 +537,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         form.append(
           'file',
           new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
-          fileToUpload.name || 'story.bin'
+          'story.enc'
         );
         form.append('sealed', 'true');
         const mime =
@@ -598,7 +598,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         for (const entry of pending) {
           const fails = offlineRetryRef.current.failCounts.get(entry.id) || 0;
           if (fails >= 3) continue; // stop hammering a permanently broken item
-          const file = new File([entry.sourceBytes], entry.filename || 'story.bin', { type: entry.mimetype || 'application/octet-stream' });
+          const file = new File([entry.sourceBytes], entry.filename || 'story.enc', { type: entry.mimetype || 'application/octet-stream' });
           const ok = await uploadStory(file, entry.storyOptions?.ttlMs, entry.storyOptions?.allowReplies, entry.storyOptions?.options || {});
           if (!ok) {
             offlineRetryRef.current.failCounts.set(entry.id, fails + 1);
@@ -1112,6 +1112,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     const abortController = new AbortController();
     let objectUrl;
     let usedCache = false;
+    let settled = false;
 
     setMediaUrl(null);
     setMediaBlob(null);
@@ -1122,6 +1123,13 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     setSaveHighlightOpen(false);
 
     const slowTimer = setTimeout(() => setSlowLoad(true), 5000);
+    // Hard fail-safe: never leave the viewer on an infinite spinner.
+    const failSafeTimer = setTimeout(() => {
+      if (settled || abortController.signal.aborted) return;
+      settled = true;
+      setLoadPhase('');
+      setBlockedReason('Story media is taking too long — close and open again');
+    }, 50_000);
 
     // The view-once "consumed" flag is written by this /view ping. It must fire
     // AFTER the media has actually loaded — never before or concurrently — or a
@@ -1139,6 +1147,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
       const cachedBlob = storyMediaBlobCache.get(cacheKey);
       if (cachedUrl && cachedBlob) {
         usedCache = true;
+        settled = true;
         setMediaUrl(cachedUrl);
         setMediaBlob(cachedBlob);
         pingViewed();
@@ -1150,7 +1159,12 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         unlocked = unlockStoryKey(story, currentUserId);
         const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
         if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
-          setBlockedReason('Sealed story — no envelope for your keys');
+          settled = true;
+          const reason =
+            unlocked?.reason === 'no-secret'
+              ? 'Sealed story — your local keys do not match (re-import keys.txt)'
+              : 'Sealed story — no envelope for your keys';
+          setBlockedReason(reason);
           return;
         }
       }
@@ -1175,13 +1189,17 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
       objectUrl = storyMediaCache.get(cacheKey) || URL.createObjectURL(blob);
       if (!storyMediaCache.has(cacheKey)) storyMediaCache.set(cacheKey, objectUrl);
+      settled = true;
       setMediaUrl(objectUrl);
       setMediaBlob(blob);
       setLoadPhase('');
       pingViewed();
     })().catch((err) => {
-      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
+      // Only ignore abort if *this* viewer instance was cleaned up.
+      if (abortController.signal.aborted) return;
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError') return;
 
+      settled = true;
       setMediaUrl(null);
       setMediaBlob(null);
       setLoadPhase('');
@@ -1191,24 +1209,37 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         if (status === 403) {
           setBlockedReason('Sealed story — no envelope for your keys');
         } else if (status === 404) {
-          setBlockedReason('Story media is missing on the server');
-        } else if (err.code === 'ECONNABORTED') {
+          setBlockedReason(
+            isOwn
+              ? 'This story’s file is missing from storage — delete it and post again'
+              : 'Story media is missing on the server (ask them to re-post)',
+          );
+        } else if (status === 502) {
+          setBlockedReason('Could not reach story storage — try again in a moment');
+        } else if (err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))) {
           setBlockedReason('Status download timed out — try again');
         } else if (err.message?.includes('No decryption key')) {
           setBlockedReason('Sealed story — no envelope for your keys');
+        } else if (/OperationError|decrypt/i.test(String(err.message || err.name || ''))) {
+          setBlockedReason('Could not decrypt this sealed story');
         } else {
           setBlockedReason('Could not decrypt this sealed story');
         }
       } else {
         setBlockedReason(
-          err.code === 'ECONNABORTED'
-            ? 'Status download timed out — try again'
-            : 'Failed to load story media'
+          err?.response?.status === 404
+            ? isOwn
+              ? 'This story’s file is missing from storage — delete it and post again'
+              : 'Story media is missing on the server'
+            : err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))
+              ? 'Status download timed out — try again'
+              : 'Failed to load story media'
         );
       }
     });
     return () => {
       clearTimeout(slowTimer);
+      clearTimeout(failSafeTimer);
       abortController.abort();
       if (objectUrl && !usedCache) {
         const key = cacheKeyForStory(story);
