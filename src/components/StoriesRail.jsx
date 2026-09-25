@@ -531,7 +531,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         form.append(
           'file',
           new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
-          fileToUpload.name || 'story.bin'
+          'story.bin'
         );
         form.append('sealed', 'true');
         const mime =
@@ -1198,7 +1198,13 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         if (status === 403) {
           setBlockedReason('Sealed story — no envelope for your keys');
         } else if (status === 404) {
-          setBlockedReason('Story media is missing on the server');
+          setBlockedReason(
+            isOwn
+              ? 'This story’s file is missing from storage — delete it and post again'
+              : 'Story media is missing on the server (ask them to re-post)',
+          );
+        } else if (status === 502) {
+          setBlockedReason('Could not reach story storage — try again in a moment');
         } else if (err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))) {
           setBlockedReason('Status download timed out — try again');
         } else if (err.message?.includes('No decryption key')) {
@@ -1210,9 +1216,13 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         }
       } else {
         setBlockedReason(
-          err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))
-            ? 'Status download timed out — try again'
-            : 'Failed to load story media'
+          err?.response?.status === 404
+            ? isOwn
+              ? 'This story’s file is missing from storage — delete it and post again'
+              : 'Story media is missing on the server'
+            : err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))
+              ? 'Status download timed out — try again'
+              : 'Failed to load story media'
         );
       }
     });
