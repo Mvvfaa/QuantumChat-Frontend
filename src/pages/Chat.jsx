@@ -4512,7 +4512,7 @@ useEffect(() => {
           prompt.replace(/@QuantumAI\b/gi, "").trim() ||
           "Help with this conversation.",
         context,
-        link: { groupId: selected.id },
+        link: { groupId: selected.id, quantumChatPeerId: user.id },
         ephemeral: true,
         signal: controller.signal,
         onDone: (payload) => {
