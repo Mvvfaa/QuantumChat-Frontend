@@ -465,7 +465,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           id: clientStoryId,
           type: 'story',
           conversationKey: `story:${currentUser.id}`,
-          filename: fileToUpload.name || 'story.bin',
+          filename: fileToUpload.name || 'story.enc',
           mimetype: fileToUpload.type || 'application/octet-stream',
           sourceBytes: new Uint8Array(await fileToUpload.arrayBuffer()),
           storyOptions: { ttlMs, allowReplies, options: { ...options, clientStoryId, skipOutbox: true } },
@@ -531,7 +531,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         form.append(
           'file',
           new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
-          'story.bin'
+          'story.enc'
         );
         form.append('sealed', 'true');
         const mime =
@@ -589,7 +589,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         for (const entry of pending) {
           const fails = offlineRetryRef.current.failCounts.get(entry.id) || 0;
           if (fails >= 3) continue; // stop hammering a permanently broken item
-          const file = new File([entry.sourceBytes], entry.filename || 'story.bin', { type: entry.mimetype || 'application/octet-stream' });
+          const file = new File([entry.sourceBytes], entry.filename || 'story.enc', { type: entry.mimetype || 'application/octet-stream' });
           const ok = await uploadStory(file, entry.storyOptions?.ttlMs, entry.storyOptions?.allowReplies, entry.storyOptions?.options || {});
           if (!ok) {
             offlineRetryRef.current.failCounts.set(entry.id, fails + 1);
