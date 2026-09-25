@@ -1101,6 +1101,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     const abortController = new AbortController();
     let objectUrl;
     let usedCache = false;
+    let settled = false;
 
     setMediaUrl(null);
     setMediaBlob(null);
@@ -1111,6 +1112,13 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     setSaveHighlightOpen(false);
 
     const slowTimer = setTimeout(() => setSlowLoad(true), 5000);
+    // Hard fail-safe: never leave the viewer on an infinite spinner.
+    const failSafeTimer = setTimeout(() => {
+      if (settled || abortController.signal.aborted) return;
+      settled = true;
+      setLoadPhase('');
+      setBlockedReason('Story media is taking too long — close and open again');
+    }, 50_000);
 
     // The view-once "consumed" flag is written by this /view ping. It must fire
     // AFTER the media has actually loaded — never before or concurrently — or a
@@ -1128,6 +1136,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
       const cachedBlob = storyMediaBlobCache.get(cacheKey);
       if (cachedUrl && cachedBlob) {
         usedCache = true;
+        settled = true;
         setMediaUrl(cachedUrl);
         setMediaBlob(cachedBlob);
         pingViewed();
@@ -1139,7 +1148,12 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         unlocked = unlockStoryKey(story, currentUserId);
         const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
         if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
-          setBlockedReason('Sealed story — no envelope for your keys');
+          settled = true;
+          const reason =
+            unlocked?.reason === 'no-secret'
+              ? 'Sealed story — your local keys do not match (re-import keys.txt)'
+              : 'Sealed story — no envelope for your keys';
+          setBlockedReason(reason);
           return;
         }
       }
@@ -1164,13 +1178,17 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
       objectUrl = storyMediaCache.get(cacheKey) || URL.createObjectURL(blob);
       if (!storyMediaCache.has(cacheKey)) storyMediaCache.set(cacheKey, objectUrl);
+      settled = true;
       setMediaUrl(objectUrl);
       setMediaBlob(blob);
       setLoadPhase('');
       pingViewed();
     })().catch((err) => {
-      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
+      // Only ignore abort if *this* viewer instance was cleaned up.
+      if (abortController.signal.aborted) return;
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError') return;
 
+      settled = true;
       setMediaUrl(null);
       setMediaBlob(null);
       setLoadPhase('');
@@ -1181,16 +1199,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           setBlockedReason('Sealed story — no envelope for your keys');
         } else if (status === 404) {
           setBlockedReason('Story media is missing on the server');
-        } else if (err.code === 'ECONNABORTED') {
+        } else if (err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))) {
           setBlockedReason('Status download timed out — try again');
         } else if (err.message?.includes('No decryption key')) {
           setBlockedReason('Sealed story — no envelope for your keys');
+        } else if (/OperationError|decrypt/i.test(String(err.message || err.name || ''))) {
+          setBlockedReason('Could not decrypt this sealed story');
         } else {
           setBlockedReason('Could not decrypt this sealed story');
         }
       } else {
         setBlockedReason(
-          err.code === 'ECONNABORTED'
+          err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))
             ? 'Status download timed out — try again'
             : 'Failed to load story media'
         );
@@ -1198,6 +1218,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     });
     return () => {
       clearTimeout(slowTimer);
+      clearTimeout(failSafeTimer);
       abortController.abort();
       if (objectUrl && !usedCache) {
         const key = cacheKeyForStory(story);
