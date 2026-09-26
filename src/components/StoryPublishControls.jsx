@@ -1,5 +1,6 @@
-import { createPortal } from 'react-dom';
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import StoryMentionPicker from './StoryMentionPicker.jsx';
 
 const TTL_PRESETS = [
   { label: '1 hour', ms: 60 * 60 * 1000 },
@@ -32,6 +33,7 @@ export function useStoryPublishOptions(initialTtl = DEFAULT_TTL_MS) {
   const [captionStyle, setCaptionStyle] = useState({
     x: 50, y: 85, fontSize: 22, color: '#ffffff', background: 'rgba(0,0,0,0.35)', align: 'center',
   });
+  const [mentions, setMentions] = useState([]); // [{ id, username, visibility: 'public'|'hidden' }]
 
   function computeTtlMs() {
     if (customMode) {
@@ -51,6 +53,9 @@ export function useStoryPublishOptions(initialTtl = DEFAULT_TTL_MS) {
     opts.caption = caption.trim().slice(0, 200);
     opts.captionMode = captionMode;
     if (captionMode === 'free') opts.captionStyle = captionStyle;
+     if (mentions.length) {
+      opts.mentions = mentions.map((m) => ({ user: m.id, visibility: m.visibility }));
+    }
     if (opts.status === 'scheduled') {
       const at = new Date(scheduleLocal);
       if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + 30_000) {
@@ -84,6 +89,8 @@ export function useStoryPublishOptions(initialTtl = DEFAULT_TTL_MS) {
     setCaptionMode,
     captionStyle,
     setCaptionStyle,
+    mentions,
+    setMentions,
     computeTtlMs,
     buildOptions,
     TTL_PRESETS,
@@ -126,6 +133,8 @@ export function StoryLocalPreview({ file, previewUrl, onClose }) {
 
 export function StoryPublishControls({
   opts,
+  friends = [],
+  mentionCandidates = [],
   busy,
   canSubmit,
   onPreview,
@@ -251,6 +260,15 @@ export function StoryPublishControls({
           />
           <span>View once — disappears for each viewer right after they open it</span>
         </label>
+       
+      {friends.length > 0 && (
+        <StoryMentionPicker
+          friends={friends}
+          selected={opts.mentions}
+          onChange={opts.setMentions}
+          disabled={busy}
+        />
+      )}
         <div className="story-schedule-block">
           <label className="story-composer-check">
             <input
