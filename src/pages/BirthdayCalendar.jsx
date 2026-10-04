@@ -8,8 +8,16 @@ import {
   ArrowLeft,
   Search,
   Sparkles,
-  Users
+  Users,
+  Plus,
+  Shield,
+  X,
+  Check,
+  Lock,
+  Globe,
+  UserCheck
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import client from '../api/client.js';
 import {
   normalizeFriendBirthdays,
@@ -27,6 +35,7 @@ const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function BirthdayCalendar() {
   const navigate = useNavigate();
+  const { user, updateSessionUser, refreshUserFromServer } = useAuth();
   const today = useMemo(() => new Date(), []);
 
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -36,6 +45,36 @@ export default function BirthdayCalendar() {
   const [error, setError] = useState(null);
   const [selectedDay, setSelectedDay] = useState(today.getDate());
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Birthday & Privacy Modal state
+  const [showModal, setShowModal] = useState(false);
+  const [dob, setDob] = useState('');
+  const [visibility, setVisibility] = useState('friends');
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
+  // Sync state with current user
+  useEffect(() => {
+    if (user?.dateOfBirth) {
+      try {
+        const d = new Date(user.dateOfBirth);
+        if (!isNaN(d.getTime())) {
+          setDob(d.toISOString().split('T')[0]);
+        }
+      } catch (e) {
+        // fallback
+      }
+    } else {
+      setDob('');
+    }
+
+    const currentVis =
+      user?.privacy?.birthdayVisibility ||
+      user?.privacySettings?.birthdayVisibility ||
+      'friends';
+    setVisibility(currentVis);
+  }, [user]);
 
   // Fetch friends list and normalize birthdays with strict privacy enforcement
   useEffect(() => {
@@ -48,7 +87,7 @@ export default function BirthdayCalendar() {
         if (isMounted) {
           const rawFriends = Array.isArray(res.data)
             ? res.data
-            : (res.data?.friends || []);
+            : res.data?.friends || [];
           const normalized = normalizeFriendBirthdays(rawFriends, today);
           setFriends(normalized);
         }
@@ -92,6 +131,46 @@ export default function BirthdayCalendar() {
     setSelectedDay(today.getDate());
   };
 
+  const handleSaveBirthday = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
+    try {
+      // 1. Update Date of Birth on user profile
+      const userRes = await client.patch('/users/me', {
+        dateOfBirth: dob ? new Date(dob).toISOString() : ''
+      });
+
+      // 2. Update Birthday Visibility Privacy: 'everyone' | 'friends' | 'onlyMe'
+      const privRes = await client.patch('/users/me/privacy', {
+        birthdayVisibility: visibility
+      });
+
+      if (userRes.data?.user) {
+        updateSessionUser(userRes.data.user);
+      } else if (userRes.data) {
+        updateSessionUser(userRes.data);
+      } else if (refreshUserFromServer) {
+        await refreshUserFromServer();
+      }
+
+      setSaveSuccess(true);
+      setTimeout(() => {
+        setSaveSuccess(false);
+        setShowModal(false);
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to save birthday & privacy settings:', err);
+      setSaveError(
+        err.response?.data?.error || err.message || 'Failed to save settings'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Group birthdays by month & day (1-indexed month, day)
   const birthdaysMap = useMemo(() => {
     const map = new Map();
@@ -111,7 +190,9 @@ export default function BirthdayCalendar() {
 
     const filtered = searchQuery.trim()
       ? list.filter((f) =>
-          (f.name || f.username || '').toLowerCase().includes(searchQuery.toLowerCase())
+          (f.name || f.username || '')
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase())
         )
       : list;
 
@@ -142,6 +223,37 @@ export default function BirthdayCalendar() {
 
   return (
     <div className="birthday-page">
+      {/* Background Doodles */}
+      <div className="bg-doodle bg-doodle-1"></div>
+      <div className="bg-doodle bg-doodle-2"></div>
+      <div className="bg-doodle bg-doodle-3"></div>
+      <div className="bg-doodle bg-doodle-4"></div>
+      <div className="bg-doodle bg-doodle-5"></div>
+      <div className="bg-doodle bg-doodle-6"></div>
+      <div className="bg-doodle bg-doodle-7"></div>
+      <div className="bg-doodle bg-doodle-8"></div>
+      <div className="bg-doodle bg-doodle-9"></div>
+      <div className="bg-doodle bg-doodle-10"></div>
+      <div className="bg-doodle bg-doodle-11"></div>
+      <div className="bg-doodle bg-doodle-12"></div>
+      <div className="bg-doodle bg-doodle-13"></div>
+      <div className="bg-doodle bg-doodle-14"></div>
+      <div className="bg-doodle bg-doodle-15"></div>
+      <div className="bg-doodle bg-doodle-16"></div>
+      <div className="bg-doodle bg-doodle-17"></div>
+      <div className="bg-doodle bg-doodle-18"></div>
+      <div className="bg-doodle bg-doodle-19"></div>
+      <div className="bg-doodle bg-doodle-20"></div>
+      <div className="bg-doodle bg-doodle-21"></div>
+      <div className="bg-doodle bg-doodle-22"></div>
+      <div className="bg-doodle bg-doodle-23"></div>
+      <div className="bg-doodle bg-doodle-24"></div>
+      <div className="bg-doodle bg-doodle-25"></div>
+      <div className="bg-doodle bg-doodle-26"></div>
+      <div className="bg-doodle bg-doodle-27"></div>
+      <div className="bg-doodle bg-doodle-28"></div>
+      <div className="bg-doodle bg-doodle-29"></div>
+      <div className="bg-doodle bg-doodle-30"></div>
       <div className="birthday-container">
         {/* Top Header */}
         <header className="birthday-header">
@@ -166,6 +278,15 @@ export default function BirthdayCalendar() {
           <div className="birthday-header-actions">
             <button
               type="button"
+              className="birthday-add-btn"
+              onClick={() => setShowModal(true)}
+              title="Add or edit your birthday and privacy"
+            >
+              <Plus size={16} />
+              <span>{user?.dateOfBirth ? 'My Birthday & Privacy' : 'Add Birthday'}</span>
+            </button>
+            <button
+              type="button"
               className="birthday-today-btn"
               onClick={handleTodayClick}
             >
@@ -174,6 +295,37 @@ export default function BirthdayCalendar() {
             </button>
           </div>
         </header>
+
+        {/* User Birthday & Privacy Status Banner */}
+        <div className="birthday-user-status-banner">
+          <div className="status-banner-left">
+            <Cake className="status-banner-icon" size={24} />
+            <div className="status-banner-text">
+              <span className="status-banner-title">
+                {user?.dateOfBirth
+                  ? `Your Birthday: ${new Date(user.dateOfBirth).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}`
+                  : 'Add your birthday so your friends can celebrate with you!'}
+              </span>
+              <span className="status-banner-privacy">
+                Visibility:{' '}
+                <strong>
+                  {visibility === 'everyone'
+                    ? 'Everybody (Public)'
+                    : visibility === 'onlyMe'
+                    ? 'Nobody / Private'
+                    : 'Friends Only'}
+                </strong>
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="status-banner-btn"
+            onClick={() => setShowModal(true)}
+          >
+            {user?.dateOfBirth ? 'Edit Birthday & Privacy' : '+ Add Birthday'}
+          </button>
+        </div>
 
         {/* Content Layout */}
         <div className="birthday-layout">
@@ -292,7 +444,8 @@ export default function BirthdayCalendar() {
                 </h3>
                 {selectedDateFriends.length > 0 && (
                   <span className="selected-count-badge">
-                    {selectedDateFriends.length} birthday{selectedDateFriends.length > 1 ? 's' : ''}
+                    {selectedDateFriends.length} birthday
+                    {selectedDateFriends.length > 1 ? 's' : ''}
                   </span>
                 )}
               </div>
@@ -504,6 +657,146 @@ export default function BirthdayCalendar() {
           </aside>
         </div>
       </div>
+
+      {/* Birthday & Privacy Settings Modal */}
+      {showModal && (
+        <div className="birthday-modal-overlay" onClick={() => !saving && setShowModal(false)}>
+          <div
+            className="birthday-modal-content"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="birthday-modal-header">
+              <h2 className="birthday-modal-title">
+                <Cake size={22} className="status-banner-icon" />
+                {user?.dateOfBirth ? 'Edit Birthday & Privacy' : 'Add Birthday & Privacy'}
+              </h2>
+              <button
+                type="button"
+                className="birthday-modal-close"
+                onClick={() => !saving && setShowModal(false)}
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBirthday} className="birthday-modal-form">
+              {/* Date of Birth Input */}
+              <div className="birthday-form-group">
+                <label className="birthday-form-label">Date of Birth</label>
+                <span className="birthday-form-helper">
+                  Select your birth day, month, and year
+                </span>
+                <input
+                  type="date"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  max={new Date().toISOString().split('T')[0]}
+                  className="birthday-form-input"
+                  required
+                />
+              </div>
+
+              {/* Privacy Setting Selector */}
+              <div className="birthday-form-group">
+                <label className="birthday-form-label">
+                  <Shield size={16} style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: '4px' }} />
+                  Who can see your birthday?
+                </label>
+                <span className="birthday-form-helper">
+                  Control who gets birthday reminders and sees your birthday on the calendar
+                </span>
+
+                <div className="birthday-privacy-options">
+                  {/* Everyone */}
+                  <div
+                    className={`privacy-option-card ${visibility === 'everyone' ? 'selected' : ''}`}
+                    onClick={() => setVisibility('everyone')}
+                  >
+                    <div className="privacy-option-icon">
+                      <Globe size={18} />
+                    </div>
+                    <div className="privacy-option-text">
+                      <span className="privacy-option-title">Everybody</span>
+                      <span className="privacy-option-desc">Anyone on QuantumChat can see your birthday</span>
+                    </div>
+                    <div className="privacy-radio-circle">
+                      {visibility === 'everyone' && <div className="privacy-radio-inner" />}
+                    </div>
+                  </div>
+
+                  {/* Friends */}
+                  <div
+                    className={`privacy-option-card ${visibility === 'friends' ? 'selected' : ''}`}
+                    onClick={() => setVisibility('friends')}
+                  >
+                    <div className="privacy-option-icon">
+                      <UserCheck size={18} />
+                    </div>
+                    <div className="privacy-option-text">
+                      <span className="privacy-option-title">Friends Only</span>
+                      <span className="privacy-option-desc">Only confirmed friends can see your birthday</span>
+                    </div>
+                    <div className="privacy-radio-circle">
+                      {visibility === 'friends' && <div className="privacy-radio-inner" />}
+                    </div>
+                  </div>
+
+                  {/* Nobody / onlyMe */}
+                  <div
+                    className={`privacy-option-card ${visibility === 'onlyMe' ? 'selected' : ''}`}
+                    onClick={() => setVisibility('onlyMe')}
+                  >
+                    <div className="privacy-option-icon">
+                      <Lock size={18} />
+                    </div>
+                    <div className="privacy-option-text">
+                      <span className="privacy-option-title">Nobody / Private</span>
+                      <span className="privacy-option-desc">Hidden from everyone. Nobody gets notified.</span>
+                    </div>
+                    <div className="privacy-radio-circle">
+                      {visibility === 'onlyMe' && <div className="privacy-radio-inner" />}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Feedback */}
+              {saveSuccess && (
+                <div className="birthday-modal-feedback success">
+                  <Check size={18} />
+                  <span>Birthday & privacy settings saved!</span>
+                </div>
+              )}
+
+              {saveError && (
+                <div className="birthday-modal-feedback error">
+                  <span>{saveError}</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="birthday-modal-actions">
+                <button
+                  type="button"
+                  className="birthday-btn-secondary"
+                  onClick={() => setShowModal(false)}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="birthday-btn-primary"
+                  disabled={saving || saveSuccess}
+                >
+                  {saving ? 'Saving...' : 'Save Settings'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
