@@ -95,17 +95,19 @@ export default function NotificationPermissionBanner() {
         </span>
         {error ? <span className="notif-perm-banner-error">{error}</span> : null}
       </div>
-      <button type="button" className="notif-perm-banner-enable" onClick={enable} disabled={busy}>
-        {busy ? 'Enabling…' : 'Enable'}
-      </button>
-      <button
-        type="button"
-        className="notif-perm-banner-dismiss"
-        onClick={dismiss}
-        aria-label="Dismiss"
-      >
-        <X size={16} />
-      </button>
+      <div className="notif-perm-banner-actions">
+        <button type="button" className="notif-perm-btn primary" onClick={enable} disabled={busy}>
+          {busy ? 'Enabling…' : 'Enable'}
+        </button>
+        <button
+          type="button"
+          className="notif-perm-btn ghost"
+          onClick={dismiss}
+          aria-label="Dismiss"
+        >
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 }
