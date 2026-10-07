@@ -61,10 +61,8 @@ function getPreferredTheme() {
   } catch {
     // localStorage may be unavailable
   }
-  if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches) {
-    return 'light';
-  }
-  return 'dark';
+  // New visitors always start on light, regardless of the OS colour scheme.
+  return 'light';
 }
 
 function applyTheme(theme) {
