@@ -1,7 +1,9 @@
 import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Languages, Search } from 'lucide-react';
 import client, { getMyReferrals, unmuteChat, updatePrivacySettings } from '../api/client.js';
+
 import {
   approveDeviceLink,
   buildQrPayload,
@@ -25,11 +27,16 @@ import {
 } from '../utils/pushNotifications.js';
 import { playReceiveSound, unlockAudio } from '../utils/sounds.js';
 import { detectBrowserTimezone, getTimezoneList } from '../utils/timezones.js';
+import { publicInviteLink } from '../utils/publicAppUrl.js';
+import { formatLastSeen } from '../utils/formatLastSeen.js';
 import DeviceLinkRequestModal from './DeviceLinkRequestModal.jsx';
 import DeviceLinkSetupModal from './DeviceLinkSetupModal.jsx';
 import ThemeSwitcher, { FunThemeSwitcher } from './ThemeSwitcher.jsx';
 import PrivacySelect from './ui/PrivacySelect.jsx';
 import UserAvatar, { bustAvatarCache } from './UserAvatar.jsx';
+import ToggleSwitch from './ToggleSwitch.jsx';
+import ThemePreviewCard from './ThemePreviewCard.jsx';
+import './SettingsModal.css';
 
 function parseMutedKey(key, myId) {
   if (!key) return null;
@@ -53,11 +60,10 @@ function formatMuteExpiry(expiresAt) {
 
 function ToggleRow({ label, hint, checked, onChange, disabled, className = '', showStatusBadge = false }) {
   return (
-    <button
-      type="button"
+    <div
       className={`settings-row ${className}`.trim()}
       onClick={() => !disabled && onChange?.(!checked)}
-      disabled={disabled}
+      style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
     >
       <span className="settings-row-left">
         <span className="settings-row-label">{label}</span>
@@ -69,11 +75,14 @@ function ToggleRow({ label, hint, checked, onChange, disabled, className = '', s
             {checked ? 'Enabled' : 'Off'}
           </span>
         )}
-        <span className={`menu-switch ${checked ? 'on' : ''}`} aria-hidden="true">
-          <span className="menu-switch-knob" />
-        </span>
+        <ToggleSwitch
+          checked={checked}
+          onChange={(val) => !disabled && onChange?.(val)}
+          disabled={disabled}
+          label={label}
+        />
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -115,9 +124,162 @@ export default function SettingsModal({
   const { importKeys, keyringSync, keyringNeedsResync, verifyKeySync } = useAuth();
   const { settings: notifSettings, updateSettings: updateNotifSettings } = useNotificationSettings();
   const closeRef = useRef(null);
+  const closeMobileRef = useRef(null);
   const keyInputRef = useRef(null);
   const avatarInputRef = useRef(null);
   const [tab, setTab] = useState(initialTab);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const TAB_ITEMS = [
+    {
+      id: 'profile',
+      label: t('settings.tabs.profile', 'Profile'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+      ),
+    },
+    {
+      id: 'privacy',
+      label: t('settings.tabs.privacy', 'Privacy'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        </svg>
+      ),
+    },
+    {
+      id: 'notifications',
+      label: t('settings.tabs.notifications', 'Notifications'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+      ),
+    },
+    {
+      id: 'security',
+      label: t('settings.tabs.security', 'Security'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+      ),
+    },
+    {
+      id: 'blocked',
+      label: t('settings.tabs.blocked', 'Blocked'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+        </svg>
+      ),
+    },
+    {
+      id: 'data',
+      label: t('settings.tabs.data', 'Data'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <ellipse cx="12" cy="5" rx="9" ry="3" />
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+        </svg>
+      ),
+    },
+    {
+      id: 'invite',
+      label: t('settings.tabs.invite', 'Invite'),
+      icon: (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="8.5" cy="7" r="4" />
+          <line x1="20" y1="8" x2="20" y2="14" />
+          <line x1="17" y1="11" x2="23" y2="11" />
+        </svg>
+      ),
+    },
+  ];
+
+  const tabSubtitles = {
+    profile: t('settings.profile.subtitle', 'Manage your public identity, avatar, and system preferences'),
+    privacy: t('settings.privacy.subtitle', 'Control who can view your profile info, last seen, and activity'),
+    notifications: t('settings.notifications.subtitle', 'Configure sound alerts, push notifications, and quiet hours'),
+    security: t('settings.security.subtitle', 'Manage encryption keys, active sessions, and multi-factor authentication'),
+    blocked: t('settings.blocked.subtitle', 'Review blocked contacts and moderation settings'),
+    data: t('settings.data.subtitle', 'Export archives, manage storage usage, and account data'),
+    invite: t('settings.invite.subtitle', 'Invite friends to QuantumChat and track referrals'),
+  };
+
+  const currentTabMeta = TAB_ITEMS.find((item) => item.id === tab);
+  const tabButtonRefs = useRef([]);
+
+  const handleTabKeyDown = (e, index) => {
+    let nextIndex = index;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextIndex = (index + 1) % TAB_ITEMS.length;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextIndex = (index - 1 + TAB_ITEMS.length) % TAB_ITEMS.length;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      nextIndex = TAB_ITEMS.length - 1;
+    } else {
+      return;
+    }
+    tabButtonRefs.current[nextIndex]?.focus();
+    setTab(TAB_ITEMS[nextIndex].id);
+    setSearchQuery('');
+    setError('');
+    setOk('');
+  };
+ 
+
+ 
+  
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    const container = bodyRef.current;
+    if (!container) return;
+    
+    const query = searchQuery.trim().toLowerCase();
+    
+    const blocks = container.querySelectorAll('.settings-section > div, .settings-section > button, .settings-section > ul');
+    
+    blocks.forEach(block => {
+      block.style.display = '';
+      const items = block.querySelectorAll('.settings-field, .settings-row, .settings-skin-card, .privacy-friend-item, .settings-lang-card, li');
+      items.forEach(item => item.style.display = '');
+
+      if (!query) return;
+
+      if (!block.textContent.toLowerCase().includes(query)) {
+        block.style.display = 'none';
+        return;
+      }
+
+      const title = block.querySelector('.settings-section-title, h3, h4, strong');
+      if (title && title.textContent.toLowerCase().includes(query)) {
+        return; 
+      }
+
+      items.forEach(item => {
+        if (!item.textContent.toLowerCase().includes(query)) {
+          item.style.display = 'none';
+        }
+      });
+    });
+  }, [searchQuery, tab]);  
+
   const [activeLang, setActiveLang] = useState(() => user?.preferredLanguage || i18n.language || 'en');
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -239,7 +401,7 @@ export default function SettingsModal({
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
+    (closeRef.current || closeMobileRef.current)?.focus();
     function onKeyDown(e) {
       if (e.key === 'Escape') onCloseRef.current?.();
     }
@@ -434,12 +596,16 @@ export default function SettingsModal({
     return `Join me on QuantumChat, a private end-to-end encrypted messenger: ${link}`;
   }
 
+  const shareInviteLink = referralInfo
+    ? publicInviteLink(referralInfo.referralCode, referralInfo.referralLink)
+    : '';
+
   async function shareInviteNative() {
-    if (!referralInfo?.referralLink) return;
-    const text = inviteShareText(referralInfo.referralLink);
+    if (!shareInviteLink) return;
+    const text = inviteShareText(shareInviteLink);
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'Join me on QuantumChat', text, url: referralInfo.referralLink });
+        await navigator.share({ title: 'Join me on QuantumChat', text, url: shareInviteLink });
       } catch {
         // user cancelled share sheet
       }
@@ -449,9 +615,9 @@ export default function SettingsModal({
   }
 
   async function copyInviteLink() {
-    if (!referralInfo?.referralLink) return;
+    if (!shareInviteLink) return;
     try {
-      await navigator.clipboard.writeText(referralInfo.referralLink);
+      await navigator.clipboard.writeText(shareInviteLink);
       setOk('Invite link copied');
     } catch {
       setError('Could not copy link');
@@ -976,29 +1142,21 @@ export default function SettingsModal({
   return (
     <div className="create-group-overlay" role="presentation" onClick={onClose}>
       <div
-        className={`settings-modal settings-modal-wide ${className}`.trim()}
+        className={`settings-modal settings-modal-wide qc-settings-modal ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="settings-modal-header">
+        {/* Mobile Header (<= 768px) */}
+        <div className="settings-modal-header qc-settings-mobile-header">
           <div className="settings-modal-heading">
-            <h2 id="settings-title">{t('settings.title', 'Settings')}</h2>
+            <h2 id="settings-title-mobile">{t('settings.title', 'Settings')}</h2>
             <p>
-              {
-                {
-                  profile: t('settings.profile.subtitle', 'Manage your public identity, avatar, and system preferences'),
-                  privacy: t('settings.privacy.subtitle', 'Control who can view your profile info, last seen, and activity'),
-                  notifications: t('settings.notifications.subtitle', 'Configure sound alerts, push notifications, and quiet hours'),
-                  security: t('settings.security.subtitle', 'Manage encryption keys, active sessions, and multi-factor authentication'),
-                  blocked: t('settings.blocked.subtitle', 'Review blocked contacts and moderation settings'),
-                  data: t('settings.data.subtitle', 'Export archives, manage storage usage, and account data'),
-                }[tab] || t('settings.subtitle', 'Profile, privacy, security, and app preferences')
-              }
+              {tabSubtitles[tab] || t('settings.subtitle', 'Profile, privacy, security, and app preferences')}
             </p>
           </div>
-          <button ref={closeRef} type="button" className="settings-close settings-close-btn" onClick={onClose} aria-label={t('common.close', 'Close')}>
+          <button ref={closeMobileRef} type="button" className="settings-close settings-close-btn" onClick={onClose} aria-label={t('common.close', 'Close')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -1006,100 +1164,114 @@ export default function SettingsModal({
           </button>
         </div>
 
-        <nav className="settings-tabs settings-nav" aria-label="Settings sections">
-          {[
-            {
-              id: 'profile',
-              label: t('settings.tabs.profile', 'Profile'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              ),
-            },
-            {
-              id: 'privacy',
-              label: t('settings.tabs.privacy', 'Privacy'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              ),
-            },
-            {
-              id: 'notifications',
-              label: t('settings.tabs.notifications', 'Notifications'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                </svg>
-              ),
-            },
-            {
-              id: 'security',
-              label: t('settings.tabs.security', 'Security'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-              ),
-            },
-            {
-              id: 'blocked',
-              label: t('settings.tabs.blocked', 'Blocked'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
-                </svg>
-              ),
-            },
-            {
-              id: 'data',
-              label: t('settings.tabs.data', 'Data'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <ellipse cx="12" cy="5" rx="9" ry="3" />
-                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-                </svg>
-              ),
-            },
-            {
-              id: 'invite',
-              label: t('settings.tabs.invite', 'Invite'),
-              icon: (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="8.5" cy="7" r="4" />
-                  <line x1="20" y1="8" x2="20" y2="14" />
-                  <line x1="17" y1="11" x2="23" y2="11" />
-                </svg>
-              ),
-            },
-          ].map((tItem) => (
-            <button
-              key={tItem.id}
-              type="button"
-              className={`settings-tab ${tab === tItem.id ? 'active' : ''}`}
-              aria-current={tab === tItem.id ? 'page' : undefined}
-              onClick={() => {
-                setTab(tItem.id);
-                setError('');
-                setOk('');
-              }}
-            >
-              <span className="settings-tab-icon">{tItem.icon}</span>
-              <span className="settings-tab-label">{tItem.label}</span>
-            </button>
-          ))}
-        </nav>
+        {/* Left Column Sidebar (Desktop) / Navigation Strip (Mobile) */}
+        <aside className="qc-settings-sidebar">
+          {/* Desktop-only Sidebar Header */}
+          <div className="qc-settings-sidebar-header">
+            <h2 id="settings-title" className="qc-settings-brand-title">
+              {t('settings.title', 'Settings')}
+            </h2>
+            <div className="settings-search-bar qc-settings-search-bar">
+              <Search size={14} className="qc-settings-search-icon" aria-hidden="true" />
+              <input 
+                type="text" 
+                placeholder={t('common.search', 'Search settings...')} 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="qc-settings-search-input"
+              />
+            </div>
+          </div>
 
-        <div className="settings-body">
-          {error && <div className="auth-error">{error}</div>}
+          {/* Mobile-only Search Box */}
+          <div className="settings-search-bar qc-settings-mobile-search" style={{ padding: '0 24px 12px 24px', position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', insetInlineStart: 36, top: 10, color: 'var(--text-muted)' }} />
+            <input 
+              type="text" 
+              placeholder={t('common.search', 'Search settings...')} 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ 
+                width: '100%', 
+                padding: '8px 12px 8px 36px', 
+                borderRadius: '8px',
+                border: '1px solid var(--border-subtle)',
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-primary)'
+              }}
+            />
+          </div>
+
+          {/* Tab Navigation List */}
+          <nav
+            className="settings-tabs settings-nav qc-settings-nav"
+            role="tablist"
+            aria-orientation="vertical"
+            aria-label={t('settings.title', 'Settings')}
+          >
+            {TAB_ITEMS.map((tItem, index) => {
+              const isActive = tab === tItem.id;
+              return (
+                <button
+                  key={tItem.id}
+                  ref={(el) => (tabButtonRefs.current[index] = el)}
+                  id={`settings-tab-${tItem.id}`}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`settings-panel-${tItem.id}`}
+                  tabIndex={isActive ? 0 : -1}
+                  type="button"
+                  className={`settings-tab qc-settings-tab-item ${isActive ? 'active' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => {
+                    setTab(tItem.id);
+                    setSearchQuery('');
+                    setError('');
+                    setOk('');
+                  }}
+                  onKeyDown={(e) => handleTabKeyDown(e, index)}
+                >
+                  <span className="settings-tab-icon qc-settings-tab-icon">{tItem.icon}</span>
+                  <span className="settings-tab-label qc-settings-tab-label">{tItem.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* Right Column / Content Pane */}
+        <main className="qc-settings-main">
+          {/* Desktop-only Sticky Header */}
+          <header className="qc-settings-desktop-header">
+            <div className="settings-modal-heading">
+              <h2 className="qc-settings-active-title">
+                {currentTabMeta?.label || t('settings.title', 'Settings')}
+              </h2>
+              <p className="qc-settings-active-subtitle">
+                {tabSubtitles[tab] || t('settings.subtitle', 'Profile, privacy, security, and app preferences')}
+              </p>
+            </div>
+            <button
+              ref={closeRef}
+              type="button"
+              className="settings-close settings-close-btn qc-settings-close-btn"
+              onClick={onClose}
+              aria-label={t('common.close', 'Close')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </header>
+
+          <div
+            className="settings-body qc-settings-content-body"
+            ref={bodyRef}
+            role="tabpanel"
+            id={`settings-panel-${tab}`}
+            aria-labelledby={`settings-tab-${tab}`}
+          >
           {ok && <div className="settings-ok">{ok}</div>}
           {verifyLinkUrl && (
             <div className="settings-ok">
@@ -1108,7 +1280,7 @@ export default function SettingsModal({
               </a>
             </div>
           )}
-          {tab === 'profile' && (
+          {(tab === 'profile' || searchQuery) && (
             <section className="settings-section">
               {/* Identity & Avatar Card */}
               <div className="settings-identity">
@@ -1385,6 +1557,8 @@ export default function SettingsModal({
                   {t('settings.appearance.currentLook', 'Current look')}: <strong>{THEME_LABELS[theme] || theme}</strong>
                 </p>
 
+                <ThemePreviewCard />
+
                 <div className="settings-skin-card settings-skin-card--mode">
                   <header className="settings-skin-card-head">
                     <div>
@@ -1476,7 +1650,7 @@ export default function SettingsModal({
             </section>
           )}
 
-          {tab === 'privacy' && (
+          {(tab === 'privacy' || searchQuery) && (
             <section className="settings-section">
               <div className="settings-fieldset">
                 <h3 className="settings-section-title">
@@ -1794,7 +1968,8 @@ export default function SettingsModal({
                   protected — other people cannot freely screenshot them on their
                   device (best-effort on web, stronger on mobile). Chats with people
                   who have not turned this on stay normal. Enabling it does not
-                  protect every chat you open.
+                  protect every chat you open, and it does not block screenshots of
+                  Settings or other app screens.
                 </p>
 
                 <div className="settings-shield-badges">
@@ -1823,7 +1998,7 @@ export default function SettingsModal({
               </div>
             </section>
           )}
-          {tab === 'notifications' && (
+          {(tab === 'notifications' || searchQuery) && (
             <section className="settings-section">
               {/* Group 1: Message & Activity Alerts */}
               <div className="settings-fieldset">
@@ -2282,7 +2457,7 @@ export default function SettingsModal({
               </div>
             </section>
           )}
-          {tab === 'security' && (
+          {(tab === 'security' || searchQuery) && (
             <section className="settings-section">
               {/* Group 1: Authentication & Two-Factor (2FA) */}
               <div className="settings-fieldset">
@@ -2507,7 +2682,7 @@ export default function SettingsModal({
                             </span>
                             <span className="settings-row-hint">
                               {browser} · {os}
-                              {s.lastSeenAt ? ` · Last active ${new Date(s.lastSeenAt).toLocaleString()}` : ''}
+                              {s.lastSeenAt ? ` · Last active ${formatLastSeen(s.lastSeenAt, { prefix: '' })}` : ''}
                             </span>
                           </span>
                         </div>
@@ -2680,7 +2855,7 @@ export default function SettingsModal({
             </section>
           )}
 
-          {tab === 'blocked' && (
+          {(tab === 'blocked' || searchQuery) && (
             <section className="settings-section">
               <div className="settings-fieldset">
                 <div className="settings-shield-header">
@@ -2765,7 +2940,7 @@ export default function SettingsModal({
             </section>
           )}
 
-          {tab === 'data' && (
+          {(tab === 'data' || searchQuery) && (
             <section className="settings-section">
               {/* Group 1: Data Portability & Exports */}
               <div className="settings-fieldset">
@@ -2920,7 +3095,7 @@ export default function SettingsModal({
                   <>
                     <label className="settings-field">
                       <span>Your invite link</span>
-                      <input readOnly value={referralInfo.referralLink} onFocus={(e) => e.target.select()} />
+                      <input readOnly value={shareInviteLink} onFocus={(e) => e.target.select()} />
                     </label>
                     <div className="settings-key-actions">
                       <button type="button" className="settings-btn primary" onClick={shareInviteNative}>
@@ -2933,7 +3108,7 @@ export default function SettingsModal({
                     <div className="invite-quick-share">
                     <a
                       className="settings-btn ghost"
-                      href={`https://wa.me/?text=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                      href={`https://wa.me/?text=${encodeURIComponent(inviteShareText(shareInviteLink))}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       >
@@ -2941,13 +3116,13 @@ export default function SettingsModal({
                     </a>
 
                     <a className="settings-btn ghost"
-                    href={`mailto:?subject=${encodeURIComponent('Join me on QuantumChat')}&body=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                    href={`mailto:?subject=${encodeURIComponent('Join me on QuantumChat')}&body=${encodeURIComponent(inviteShareText(shareInviteLink))}`}
                       >
                     Email
                   </a>
 
                <a className="settings-btn ghost"
-                href={`sms:?&body=${encodeURIComponent(inviteShareText(referralInfo.referralLink))}`}
+                href={`sms:?&body=${encodeURIComponent(inviteShareText(shareInviteLink))}`}
                       >
                 Text message
               </a>
@@ -2983,10 +3158,10 @@ export default function SettingsModal({
         )}
       </div>
     </section>
-  )
-}
-        </div >
-      </div >
+  )}
+</div>
+</main>
+</div>
       <DeviceLinkSetupModal
         open={deviceLinkSetupModalOpen}
         qrDataUrl={deviceLinkQr}

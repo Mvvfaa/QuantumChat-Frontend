@@ -42,7 +42,7 @@
   },
   "nav": {
     "markAllRead": "Mark all as read",
-    "starredMessages": "Starred messages",
+    "starredMessages": "Important messages",
     "vault": "Key Vault",
     "setUpVault": "Set up vault",
     "lockVault": "Lock vault",
@@ -55,10 +55,17 @@
     "groups": "Groups",
     "allChats": "All Chats",
     "searchChats": "Search chats…",
-    "noConversations": "No conversations found"
+    "noConversations": "No conversations found",
+    "birthdays": "Birthday Calendar"
   },
   "settings": {
     "title": "Settings",
+    "preview": {
+      "title": "Chat Preview",
+      "receivedSample": "Hey! How does the new theme look?",
+      "sentSample": "Looks crisp and smooth! ✨",
+      "composerPlaceholder": "Type a message…"
+    },
     "language": {
       "title": "Language & Region",
       "subtitle": "Choose your interface language",
@@ -232,7 +239,7 @@
     "deleteForEveryone": "Delete for everyone",
     "searchInChat": "Search in chat",
     "chatMedia": "Chat media",
-    "starredMessages": "Starred messages",
+    "starredMessages": "Important messages",
     "wallpaper": "Wallpaper",
     "mute": "Mute",
     "unmute": "Unmute",
@@ -325,5 +332,11 @@
     "forgotPassword": "Forgot password?",
     "twoFactorPrompt": "Enter the 6-digit authentication code",
     "verifyCode": "Verify Code"
+  },
+  "lazy": {
+    "loadFailed": "Failed to load component",
+    "loadFailedDesc": "A network error occurred or a new version is available.",
+    "retry": "Retry",
+    "reloadPage": "Reload page"
   }
 }

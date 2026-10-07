@@ -166,7 +166,7 @@ export async function renderTextStoryToFile(text, { backgroundId, fontId, align 
   return new File([blob], `text-status-${Date.now()}.jpg`, { type: 'image/jpeg' });
 }
 
-export default function TextStoryComposer({ onCancel, onConfirm, uploading, onError }) {
+export default function TextStoryComposer({ friends = [], onCancel, onConfirm, uploading, onError }) {
   const [text, setText] = useState('');
   const [backgroundId, setBackgroundId] = useState(BACKGROUNDS[0].id);
   const [fontId, setFontId] = useState(FONTS[0].id);
@@ -313,6 +313,7 @@ export default function TextStoryComposer({ onCancel, onConfirm, uploading, onEr
 
         <StoryPublishControls
           opts={opts}
+          friends={friends}
           busy={busy}
           canSubmit={canPost}
           onPreview={handlePreview}
@@ -321,12 +322,6 @@ export default function TextStoryComposer({ onCancel, onConfirm, uploading, onEr
           onPost={() => submit('published')}
           postLabel="Post status"
         />
-
-        <div className="story-composer-actions" style={{ paddingTop: 0 }}>
-          <button type="button" className="story-composer-cancel" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-        </div>
       </div>
       {previewFile && previewUrl && (
         <StoryLocalPreview

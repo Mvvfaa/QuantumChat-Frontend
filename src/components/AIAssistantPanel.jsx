@@ -9,6 +9,7 @@ import {
   readStoredAiBg,
   writeStoredAiBg,
 } from '../utils/aiPanelBg.js';
+import MarkdownContent from './MarkdownContent.jsx';
 
 function messageKey(message, index) {
   return String(message.id || message._id || `idx-${index}`);
@@ -28,6 +29,7 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
     return log[0] || null;
   });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const abortRef = useRef(null);
   const chunkBufferRef = useRef('');
   const rafRef = useRef(null);
@@ -85,6 +87,7 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
     const controller = new AbortController();
     abortRef.current = controller;
     setAnswer('');
+    setError('');
     setBusy(true);
     try {
       if (context.length > 0) {
@@ -122,10 +125,12 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
         message: prompt.trim(),
         context,
         ephemeral: true,
+        // Receipts must be signed for the logged-in QuantumChat user id.
+        // conversation.id is the peer/group — never use that as quantumChatPeerId.
         link:
           conversation?.type === 'group'
-            ? { groupId: conversation.id }
-            : { quantumChatPeerId: conversation?.id },
+            ? { groupId: conversation.id, quantumChatPeerId: user?.id }
+            : { quantumChatPeerId: user?.id },
         signal: controller.signal,
         onChunk: (chunk) => {
           // Buffer chunks and flush via rAF to prevent per-token re-renders
@@ -139,6 +144,10 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
           }
         },
       });
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        setError(err instanceof Error ? err.message : 'QuantumAI failed to respond');
+      }
     } finally {
       // Flush any remaining buffered text
       if (rafRef.current) {
@@ -269,8 +278,18 @@ export default function AIAssistantPanel({ conversation, messages, onClose, onIn
 
       {capsuleSnippet && <p className="ai-capsule-receipt">{capsuleSnippet}</p>}
 
+      {error ? (
+        <p className="ai-panel-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
       <div className="ai-panel-answer">
-        {answer || 'Ask for an explanation, summary, or draft reply.'}
+        {answer ? (
+          <MarkdownContent text={answer} />
+        ) : (
+          'Ask for an explanation, summary, or draft reply.'
+        )}
       </div>
 
       {answer && (

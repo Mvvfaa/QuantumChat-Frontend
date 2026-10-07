@@ -1,0 +1,1331 @@
+/* ================================================================
+   QUANTUMCHAT BIRTHDAY CALENDAR VIEW
+   Theme-aware, high-contrast, clean grid & cards
+   ================================================================ */
+
+.birthday-page {
+  position: relative;
+  isolation: isolate;
+  z-index: 2;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 1.75rem 1.5rem 3.5rem;
+  color: var(--text-primary, #f1f5f9);
+  background-color: var(--bg-body, #0f1115);
+  background-image: 
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, #f43f5e 9%, transparent) 0%, transparent 55%),
+    radial-gradient(circle at 85% 15%, color-mix(in srgb, #ec4899 7%, transparent) 0%, transparent 45%);
+  background-repeat: no-repeat;
+  font-family: inherit;
+}
+
+.birthday-container {
+  max-width: 1160px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Header */
+.birthday-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  flex-wrap: wrap;
+}
+
+.birthday-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.birthday-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  color: var(--text-primary, #fff);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.birthday-back-btn:hover {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.12));
+  transform: translateX(-2px);
+}
+
+.birthday-title-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.birthday-title {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--text-primary, #ffffff);
+  letter-spacing: -0.02em;
+}
+
+.birthday-title-icon {
+  color: #f43f5e;
+}
+
+.birthday-subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
+.birthday-today-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: color-mix(in srgb, #f43f5e 16%, transparent);
+  border: 1px solid color-mix(in srgb, #f43f5e 35%, transparent);
+  color: #fb7185;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.55rem 1.15rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.birthday-today-btn:hover {
+  background: color-mix(in srgb, #f43f5e 28%, transparent);
+  border-color: #f43f5e;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* Two-column Layout */
+.birthday-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 960px) {
+  .birthday-layout {
+    grid-template-columns: 1.5fr 1fr;
+    align-items: start;
+  }
+}
+
+/* Calendar Card */
+.birthday-calendar-card {
+  background: var(--bg-surface, #14171d);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Month Navigation */
+.birthday-month-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.birthday-current-month-display {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.birthday-month-name {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+.birthday-year-name {
+  font-size: 1.15rem;
+  font-weight: 500;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+}
+
+.birthday-nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.birthday-nav-arrow {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary, #ffffff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.birthday-nav-arrow:hover {
+  background: color-mix(in srgb, #f43f5e 20%, transparent);
+  border-color: #f43f5e;
+}
+
+/* Weekday Labels */
+.birthday-weekdays-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.45));
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+}
+
+/* Grid of Days */
+.birthday-days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.4rem;
+}
+
+.birthday-day-cell {
+  position: relative;
+  min-height: 4.25rem;
+  border-radius: 0.75rem;
+  background: var(--bg-body, rgba(255, 255, 255, 0.02));
+  border: 1px solid transparent;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.birthday-day-cell:hover:not(.inactive) {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.07));
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.birthday-day-cell.inactive {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.birthday-day-cell.is-today {
+  border-color: #f43f5e;
+  background: color-mix(in srgb, #f43f5e 12%, transparent);
+}
+
+.birthday-day-cell.is-selected {
+  border-color: #ec4899;
+  background: color-mix(in srgb, #ec4899 22%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, #ec4899 35%, transparent);
+}
+
+.birthday-day-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.birthday-day-number {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+}
+
+.birthday-indicator-icon {
+  font-size: 0.85rem;
+}
+
+.birthday-badges-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: auto;
+}
+
+.birthday-friend-chip {
+  background: color-mix(in srgb, #f43f5e 25%, transparent);
+  border: 1px solid color-mix(in srgb, #f43f5e 50%, transparent);
+  border-radius: 0.35rem;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.birthday-more-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fb7185;
+  text-align: right;
+  padding-right: 0.2rem;
+}
+
+/* Selected Date Inspector Card */
+.birthday-selected-date-card {
+  margin-top: 0.5rem;
+  padding: 1.15rem;
+  border-radius: 0.85rem;
+  background: var(--bg-body, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.selected-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.selected-date-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+}
+
+.selected-count-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: color-mix(in srgb, #f43f5e 20%, transparent);
+  color: #fb7185;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, #f43f5e 40%, transparent);
+}
+
+.selected-date-empty {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+}
+
+.selected-friends-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.selected-friend-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.65rem;
+  background: var(--bg-surface, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.selected-friend-item:hover {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
+  border-color: #f43f5e;
+}
+
+.selected-friend-avatar-wrap {
+  position: relative;
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.selected-friend-avatar,
+.selected-friend-avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.selected-friend-avatar-fallback {
+  background: #f43f5e;
+  color: #fff;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
+.birthday-sparkle-dot {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  font-size: 0.75rem;
+}
+
+.selected-friend-info {
+  flex: 1;
+  margin-left: 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.selected-friend-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+}
+
+.selected-friend-countdown {
+  font-size: 0.75rem;
+  color: #fb7185;
+}
+
+.selected-friend-chat-btn {
+  background: color-mix(in srgb, #f43f5e 20%, transparent);
+  border: 1px solid color-mix(in srgb, #f43f5e 40%, transparent);
+  color: #fff;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.selected-friend-chat-btn:hover {
+  background: #f43f5e;
+}
+
+/* Upcoming Sidebar (Right Column) */
+.birthday-upcoming-sidebar {
+  background: var(--bg-surface, #14171d);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.upcoming-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.upcoming-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--text-primary, #ffffff);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sparkle-icon {
+  color: #f59e0b;
+}
+
+.birthday-search-box {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  background: var(--bg-body, rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.85rem;
+}
+
+.search-icon {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.4));
+}
+
+.birthday-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary, #ffffff);
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.birthday-search-input::placeholder {
+  color: var(--text-secondary, rgba(255, 255, 255, 0.4));
+}
+
+.upcoming-groups-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.upcoming-category-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.upcoming-category-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+}
+
+.upcoming-category-title.today-highlight {
+  color: #f43f5e;
+}
+
+.upcoming-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.65rem;
+  background: var(--bg-body, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.07));
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.upcoming-card:hover {
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.upcoming-card.is-today {
+  background: color-mix(in srgb, #f43f5e 14%, transparent);
+  border-color: #f43f5e;
+}
+
+.upcoming-card.is-this-week {
+  background: color-mix(in srgb, #8b5cf6 12%, transparent);
+  border-color: color-mix(in srgb, #8b5cf6 35%, transparent);
+}
+
+.upcoming-card-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+}
+
+.upcoming-card-avatar img,
+.upcoming-card-avatar .avatar-fallback {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.upcoming-card-avatar .avatar-fallback {
+  background: #f43f5e;
+  color: #fff;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+
+.upcoming-card-content {
+  flex: 1;
+  margin: 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.upcoming-card-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+}
+
+.upcoming-card-date {
+  font-size: 0.75rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+}
+
+.badge-today {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: #f43f5e;
+  color: #fff;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.4);
+}
+
+.badge-countdown {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
+  color: var(--text-secondary, rgba(255, 255, 255, 0.8));
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+}
+
+/* Loading & Empty States */
+.birthday-loading-state,
+.birthday-empty-state,
+.birthday-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
+.birthday-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #f43f5e;
+  border-radius: 50%;
+  animation: bday-spin 0.8s linear infinite;
+  margin-bottom: 0.75rem;
+}
+
+@keyframes bday-spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-icon {
+  color: #f43f5e;
+  margin-bottom: 0.75rem;
+  opacity: 0.85;
+}
+
+.birthday-empty-state h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  color: var(--text-primary, #ffffff);
+}
+
+.birthday-empty-state p {
+  margin: 0;
+  font-size: 0.85rem;
+  max-width: 280px;
+  line-height: 1.4;
+}
+
+
+/* Modal Styles */
+.birthday-modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.birthday-modal-content {
+  background: var(--bg-primary, #ffffff);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  padding: 24px;
+}
+
+.birthday-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.birthday-modal-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--text-primary, #333);
+}
+
+.birthday-modal-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary, #666);
+}
+
+.birthday-form-group {
+  margin-bottom: 16px;
+}
+
+.birthday-form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #555);
+}
+
+.birthday-form-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 8px;
+  font-size: 1rem;
+  box-sizing: border-box;
+  background: var(--bg-secondary, #f9f9f9);
+  color: var(--text-primary, #333);
+}
+
+.birthday-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.birthday-btn-cancel {
+  background: var(--bg-secondary, #f0f0f0);
+  border: 1px solid var(--border-color, #ccc);
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-primary, #333);
+}
+
+.birthday-btn-save {
+  background: #ff6b6b;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.birthday-btn-save:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ================================================================
+   ADD BIRTHDAY & PRIVACY UI
+   ================================================================ */
+
+.birthday-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.birthday-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, #f43f5e 0%, #ec4899 100%);
+  border: none;
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.55rem 1.25rem;
+  border-radius: 9999px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.32);
+  transition: all 0.2s ease;
+}
+
+.birthday-add-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(244, 63, 94, 0.42);
+}
+
+.birthday-user-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-subtle, rgba(244, 63, 94, 0.22));
+  border-radius: 1.25rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.status-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.status-banner-icon {
+  color: #f43f5e;
+  flex-shrink: 0;
+}
+
+.status-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.status-banner-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+}
+
+.status-banner-privacy {
+  font-size: 0.85rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.status-banner-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.15rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f43f5e;
+  background: color-mix(in srgb, #f43f5e 12%, transparent);
+  border: 1px solid color-mix(in srgb, #f43f5e 30%, transparent);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.status-banner-btn:hover {
+  background: color-mix(in srgb, #f43f5e 22%, transparent);
+  transform: translateY(-1px);
+}
+
+/* Modal Overlay & Card */
+.birthday-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99999;
+  padding: 1rem;
+  animation: bdayFadeIn 0.2s ease-out;
+}
+
+@keyframes bdayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.birthday-modal-content {
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-primary, #0f172a);
+  border: 1px solid var(--border-subtle, rgba(226, 232, 240, 0.8));
+  border-radius: 1.5rem;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  animation: bdaySlideUp 0.25s ease-out;
+}
+
+@keyframes bdaySlideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.birthday-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.birthday-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #0f172a);
+  margin: 0;
+}
+
+.birthday-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.birthday-modal-close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+
+.birthday-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.birthday-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.birthday-form-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+}
+
+.birthday-form-helper {
+  font-size: 0.775rem;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 0.25rem;
+}
+
+.birthday-form-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  background: var(--bg-input, #f8fafc);
+  color: var(--text-primary, #0f172a);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.birthday-form-input:focus {
+  border-color: #f43f5e;
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.15);
+}
+
+/* Privacy Options */
+.birthday-privacy-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.privacy-option-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  background: var(--bg-input, #f8fafc);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.privacy-option-card:hover {
+  background: color-mix(in srgb, #f43f5e 6%, #f8fafc);
+  border-color: color-mix(in srgb, #f43f5e 40%, #e2e8f0);
+}
+
+.privacy-option-card.selected {
+  background: color-mix(in srgb, #f43f5e 10%, #ffffff);
+  border-color: #f43f5e;
+  box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.22);
+}
+
+.privacy-option-icon {
+  color: #f43f5e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.privacy-option-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.privacy-option-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.privacy-option-desc {
+  font-size: 0.775rem;
+  color: var(--text-secondary, #64748b);
+}
+
+.privacy-radio-circle {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  border: 2px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.privacy-option-card.selected .privacy-radio-circle {
+  border-color: #f43f5e;
+  background: #f43f5e;
+}
+
+.privacy-radio-inner {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.birthday-modal-feedback {
+  padding: 0.75rem 1rem;
+  border-radius: 0.65rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.birthday-modal-feedback.success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.birthday-modal-feedback.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.birthday-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.birthday-btn-secondary {
+  padding: 0.65rem 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle, #cbd5e1);
+  background: transparent;
+  color: var(--text-primary, #334155);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.birthday-btn-secondary:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.birthday-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.5rem;
+  border-radius: 9999px;
+  border: none;
+  background: linear-gradient(135deg, #f43f5e 0%, #ec4899 100%);
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(244, 63, 94, 0.28);
+  transition: all 0.2s ease;
+}
+
+.birthday-btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(244, 63, 94, 0.38);
+}
+
+.birthday-btn-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+
+/* ================================================================
+   BACKGROUND DOODLES & VIBE
+   ================================================================ */
+
+.birthday-page {
+  position: relative;
+  overflow: hidden;
+  min-height: 100vh;
+}
+
+.birthday-container {
+  position: relative;
+  z-index: 1;
+}
+
+.bg-doodle {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.12; /* Keep it very clean and not cluttery */
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+/* 1. Hand-drawn Balloon */
+.bg-doodle-1 {
+  bottom: 5%; left: 8%; width: 90px; height: 150px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 100" xmlns="http://www.w3.org/2000/svg"><path d="M30 50 C10 50, 10 10, 30 10 C50 10, 50 50, 30 50 Z M30 50 L25 55 L35 55 Z M30 55 C20 70, 40 85, 30 100" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(-5deg); animation: doodleFloat 9s ease-in-out infinite;
+}
+
+/* 2. Hand-drawn Party Hat */
+.bg-doodle-2 {
+  top: 8%; right: 10%; width: 70px; height: 90px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 80" xmlns="http://www.w3.org/2000/svg"><path d="M10 60 L30 15 L50 60 Z M10 60 C20 65, 40 65, 50 60 M30 15 A5 5 0 1 1 29.9 15 M15 50 L45 50 M20 35 L40 35" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(15deg); animation: doodleFloat 7s ease-in-out infinite; animation-delay: 1s;
+}
+
+/* 3. Hand-drawn Gift Box */
+.bg-doodle-3 {
+  bottom: 25%; left: 4%; width: 80px; height: 80px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 70 70" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="30" width="50" height="35" rx="2" fill="none" stroke="%23ec4899" stroke-width="3"/><rect x="5" y="20" width="60" height="10" rx="2" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M35 20 V65 M35 20 C20 0, 10 15, 35 20 C50 0, 60 15, 35 20" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(-10deg); animation: doodleFloat 10s ease-in-out infinite; animation-delay: 2s;
+}
+
+/* 4. Doodle Sparkles */
+.bg-doodle-4 {
+  top: 15%; left: 20%; width: 50px; height: 50px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><path d="M25 5 L25 15 M25 35 L25 45 M5 25 L15 25 M35 25 L45 25 M11 11 L18 18 M32 32 L39 39 M11 39 L18 32 M32 18 L39 11" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round"/></svg>');
+  animation: doodleFloat 5s ease-in-out infinite;
+}
+
+/* 5. Cupcake */
+.bg-doodle-5 {
+  top: 40%; left: 3%; width: 60px; height: 70px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 70" xmlns="http://www.w3.org/2000/svg"><path d="M15 40 L20 65 L40 65 L45 40 Z" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/><path d="M10 40 C10 20, 50 20, 50 40 Z M30 20 L30 5 M30 5 A3 3 0 1 1 29.9 5" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(5deg); animation: doodleFloat 8s ease-in-out infinite; animation-delay: 3s;
+}
+
+/* 6. Cake with Candles */
+.bg-doodle-6 {
+  top: 35%; right: 4%; width: 100px; height: 100px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg"><rect x="15" y="45" width="50" height="25" rx="2" fill="none" stroke="%23f43f5e" stroke-width="3"/><rect x="25" y="25" width="30" height="20" rx="2" fill="none" stroke="%23f43f5e" stroke-width="3"/><path d="M35 25 V10 M45 25 V10 M35 10 A2 2 0 1 1 34.9 10 M45 10 A2 2 0 1 1 44.9 10" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 70 H70" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round"/></svg>');
+  transform: rotate(-5deg); animation: doodleFloat 12s ease-in-out infinite; animation-delay: 1s;
+}
+
+/* 7. Bow/Ribbon */
+.bg-doodle-7 {
+  top: 55%; right: 7%; width: 50px; height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><circle cx="30" cy="20" r="5" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M25 20 C5 5, 5 35, 25 20 Z M35 20 C55 5, 55 35, 35 20 Z" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(20deg); animation: doodleFloat 6s ease-in-out infinite; animation-delay: 2s;
+}
+
+/* 8. Wine Glasses */
+.bg-doodle-8 {
+  top: 60%; left: 5%; width: 70px; height: 50px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 80 60" xmlns="http://www.w3.org/2000/svg"><path d="M20 10 L30 30 L10 30 Z M20 30 V50 M10 50 H30" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/><path d="M60 10 L70 30 L50 30 Z M60 30 V50 M50 50 H70" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/><path d="M40 20 L35 15 M40 20 L45 15 M40 25 L40 15" fill="none" stroke="%23f43f5e" stroke-width="2" stroke-linecap="round"/></svg>');
+  transform: rotate(-15deg); animation: doodleFloat 11s ease-in-out infinite; animation-delay: 4s;
+}
+
+/* 9. Envelope with Heart */
+.bg-doodle-9 {
+  bottom: 20%; right: 12%; width: 60px; height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="50" height="30" rx="2" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M5 5 L30 20 L55 5" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/><path d="M30 17 A3 3 0 0 1 33 14 A3 3 0 0 1 30 17 A3 3 0 0 0 27 14 A3 3 0 0 1 30 17" fill="%23ec4899"/></svg>');
+  transform: rotate(10deg); animation: doodleFloat 8s ease-in-out infinite; animation-delay: 1.5s;
+}
+
+/* 10. Calendar */
+.bg-doodle-10 {
+  bottom: 5%; right: 4%; width: 70px; height: 70px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="15" width="40" height="35" rx="3" fill="none" stroke="%23f43f5e" stroke-width="3"/><path d="M20 10 V20 M40 10 V20 M10 25 H50 M30 35 L30 40 M25 40 H35" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(-5deg); animation: doodleFloat 10s ease-in-out infinite;
+}
+
+/* 11. Candy */
+.bg-doodle-11 {
+  top: 75%; left: 8%; width: 50px; height: 35px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><circle cx="30" cy="20" r="10" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M20 20 L5 10 L5 30 Z M40 20 L55 10 L55 30 Z M25 15 L35 25 M25 25 L35 15" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(-25deg); animation: doodleFloat 6s ease-in-out infinite; animation-delay: 2.5s;
+}
+
+/* 12. Star */
+.bg-doodle-12 {
+  top: 25%; right: 8%; width: 40px; height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><path d="M25 5 L30 20 L45 20 L33 30 L37 45 L25 35 L13 45 L17 30 L5 20 L20 20 Z" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(15deg); animation: doodleFloat 5s ease-in-out infinite; animation-delay: 0.5s;
+}
+
+/* 13. Bunting Banner */
+.bg-doodle-13 {
+  top: 2%; left: 2%; width: 200px; height: 80px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 100 40" xmlns="http://www.w3.org/2000/svg"><path d="M5 10 Q 50 30 95 10" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M15 13 L25 30 L35 18 M40 19 L50 35 L60 21 M65 20 L75 30 L85 14" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(0deg); animation: doodleFloat 14s ease-in-out infinite;
+}
+
+/* 14. Tall Present */
+.bg-doodle-14 {
+  bottom: 35%; right: 3%; width: 60px; height: 100px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 80" xmlns="http://www.w3.org/2000/svg"><rect x="15" y="25" width="20" height="50" fill="none" stroke="%23f43f5e" stroke-width="3"/><rect x="10" y="20" width="30" height="10" fill="none" stroke="%23f43f5e" stroke-width="3"/><path d="M25 20 V75 M25 20 C15 10, 10 20, 25 20 C35 10, 40 20, 25 20" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(5deg); animation: doodleFloat 9s ease-in-out infinite; animation-delay: 1.2s;
+}
+
+/* 15. Music Notes */
+.bg-doodle-15 {
+  top: 45%; right: 12%; width: 45px; height: 45px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="35" r="5" fill="none" stroke="%23ec4899" stroke-width="3"/><circle cx="35" cy="30" r="5" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M20 35 V10 H40 V30 M20 20 H40" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(-10deg); animation: doodleFloat 7s ease-in-out infinite; animation-delay: 3.5s;
+}
+
+
+
+/* 16. Sparkle */
+.bg-doodle-16 {
+  top: 10%; left: 40%; width: 40px; height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><path d="M25 5 Q25 25 5 25 Q25 25 25 45 Q25 25 45 25 Q25 25 25 5 Z" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(15deg); animation: doodleFloat 6s ease-in-out infinite; animation-delay: 1s;
+}
+
+/* 17. Cherry */
+.bg-doodle-17 {
+  top: 60%; left: 3%; width: 50px; height: 50px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="35" r="8" fill="none" stroke="%23f43f5e" stroke-width="3"/><circle cx="35" cy="35" r="8" fill="none" stroke="%23f43f5e" stroke-width="3"/><path d="M15 27 Q20 10 35 15 M35 27 Q30 10 25 5" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round"/><path d="M25 5 Q35 5 40 10" fill="none" stroke="%23f43f5e" stroke-width="3"/></svg>');
+  transform: rotate(-10deg); animation: doodleFloat 8s ease-in-out infinite; animation-delay: 2s;
+}
+
+/* 18. Bow */
+.bg-doodle-18 {
+  top: 30%; left: 15%; width: 50px; height: 35px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><circle cx="30" cy="20" r="5" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M25 18 C10 5, 5 15, 10 25 C15 35, 20 25, 25 22 Z" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M35 18 C50 5, 55 15, 50 25 C45 35, 40 25, 35 22 Z" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M28 25 L15 35 M32 25 L45 35" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linecap="round"/></svg>');
+  transform: rotate(5deg); animation: doodleFloat 7s ease-in-out infinite; animation-delay: 0.5s;
+}
+
+/* 19. Confetti burst */
+.bg-doodle-19 {
+  bottom: 15%; left: 12%; width: 50px; height: 50px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><path d="M25 25 L10 10 M25 25 L40 10 M25 25 L10 40 M25 25 L40 40 M25 25 L25 5 M25 25 L25 45 M25 25 L5 25 M25 25 L45 25" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 10"/></svg>');
+  transform: rotate(20deg); animation: doodleFloat 9s ease-in-out infinite; animation-delay: 3s;
+}
+
+/* 20. Flower */
+.bg-doodle-20 {
+  bottom: 25%; left: 35%; width: 45px; height: 45px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><circle cx="25" cy="25" r="5" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M25 20 C15 5, 35 5, 25 20 M25 30 C15 45, 35 45, 25 30 M20 25 C5 15, 5 35, 20 25 M30 25 C45 15, 45 35, 30 25" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(-15deg); animation: doodleFloat 11s ease-in-out infinite; animation-delay: 1.5s;
+}
+
+/* 21. Diamond */
+.bg-doodle-21 {
+  bottom: 40%; right: 25%; width: 45px; height: 45px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg"><path d="M25 5 L45 20 L25 45 L5 20 Z M5 20 H45 M15 20 L25 5 L35 20 M25 45 L15 20 M25 45 L35 20" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(10deg); animation: doodleFloat 8s ease-in-out infinite; animation-delay: 2.2s;
+}
+
+/* 22. Music Note (single) */
+.bg-doodle-22 {
+  top: 55%; right: 25%; width: 35px; height: 45px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="35" r="8" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M23 35 V10 C30 10, 35 15, 35 20" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linecap="round"/></svg>');
+  transform: rotate(-12deg); animation: doodleFloat 10s ease-in-out infinite; animation-delay: 4s;
+}
+
+/* 23. Crown */
+.bg-doodle-23 {
+  top: 15%; right: 35%; width: 55px; height: 45px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 50" xmlns="http://www.w3.org/2000/svg"><path d="M10 40 L5 15 L20 25 L30 10 L40 25 L55 15 L50 40 Z" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/><path d="M15 35 H45" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round"/><circle cx="5" cy="12" r="2" fill="none" stroke="%23f43f5e" stroke-width="2"/><circle cx="30" cy="7" r="2" fill="none" stroke="%23f43f5e" stroke-width="2"/><circle cx="55" cy="12" r="2" fill="none" stroke="%23f43f5e" stroke-width="2"/></svg>');
+  transform: rotate(8deg); animation: doodleFloat 9s ease-in-out infinite; animation-delay: 1.8s;
+}
+
+/* 24. Envelope */
+.bg-doodle-24 {
+  top: 85%; right: 35%; width: 50px; height: 35px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="50" height="30" rx="2" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M5 5 L30 22 L55 5" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(-5deg); animation: doodleFloat 12s ease-in-out infinite; animation-delay: 3.2s;
+}
+
+/* 25. Heart with arrow */
+.bg-doodle-25 {
+  bottom: 8%; right: 15%; width: 50px; height: 50px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><path d="M30 45 C30 45, 10 30, 10 15 C10 5, 25 5, 30 15 C35 5, 50 5, 50 15 C50 30, 30 45, 30 45" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/><path d="M5 55 L55 5 M50 5 L55 5 L55 10 M10 55 L5 55 L5 50" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  transform: rotate(15deg); animation: doodleFloat 14s ease-in-out infinite; animation-delay: 0.8s;
+}
+\n\n
+
+/* 26. Giant 3-Tier Cake */
+.bg-doodle-26 {
+  bottom: 0%; left: -5%; width: 400px; height: 400px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect x="20" y="70" width="60" height="20" fill="none" stroke="%23ec4899" stroke-width="2"/><rect x="30" y="50" width="40" height="20" fill="none" stroke="%23ec4899" stroke-width="2"/><rect x="40" y="30" width="20" height="20" fill="none" stroke="%23ec4899" stroke-width="2"/><line x1="45" y1="30" x2="45" y2="15" stroke="%23ec4899" stroke-width="2"/><line x1="55" y1="30" x2="55" y2="15" stroke="%23ec4899" stroke-width="2"/><circle cx="45" cy="12" r="3" fill="none" stroke="%23f43f5e" stroke-width="2"/><circle cx="55" cy="12" r="3" fill="none" stroke="%23f43f5e" stroke-width="2"/><path d="M15 90 H85 M20 70 C 35 75, 45 65, 50 70 C 55 65, 65 75, 80 70 M30 50 C 35 55, 45 45, 50 50 C 55 45, 65 55, 70 50 M40 30 C 45 35, 55 25, 60 30" fill="none" stroke="%23f43f5e" stroke-width="2" stroke-linecap="round"/></svg>');
+  transform: rotate(5deg); 
+  animation: doodleFloat 16s ease-in-out infinite; 
+  opacity: 0.04; /* Very subtle because it's huge! */
+}
+
+/* 27. Teddy Bear */
+.bg-doodle-27 {
+  top: 50%; left: 25%; width: 50px; height: 50px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><circle cx="30" cy="35" r="15" fill="none" stroke="%23ec4899" stroke-width="3"/><circle cx="15" cy="20" r="8" fill="none" stroke="%23ec4899" stroke-width="3"/><circle cx="45" cy="20" r="8" fill="none" stroke="%23ec4899" stroke-width="3"/><circle cx="23" cy="30" r="2" fill="none" stroke="%23f43f5e" stroke-width="3"/><circle cx="37" cy="30" r="2" fill="none" stroke="%23f43f5e" stroke-width="3"/><path d="M30 38 L30 42 M25 42 Q30 45 35 42" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linecap="round"/></svg>');
+  transform: rotate(-10deg); animation: doodleFloat 12s ease-in-out infinite; animation-delay: 2.5s;
+}
+
+/* 28. Disco Ball */
+.bg-doodle-28 {
+  top: 15%; left: 55%; width: 45px; height: 45px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><circle cx="30" cy="30" r="20" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M12 25 H48 M12 35 H48 M20 12 V48 M40 12 V48" fill="none" stroke="%23ec4899" stroke-width="3"/><path d="M30 5 V10 M25 5 H35" fill="none" stroke="%23ec4899" stroke-width="3"/></svg>');
+  transform: rotate(15deg); animation: doodleFloat 9s ease-in-out infinite; animation-delay: 1s;
+}
+
+/* 29. Squiggle Bubble */
+.bg-doodle-29 {
+  bottom: 25%; right: 5%; width: 60px; height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 80 50" xmlns="http://www.w3.org/2000/svg"><path d="M5 5 H75 V35 H25 L10 45 V35 H5 Z" fill="none" stroke="%23ec4899" stroke-width="3" stroke-linejoin="round"/><path d="M20 20 Q 30 10 40 20 T 60 20" fill="none" stroke="%23f43f5e" stroke-width="3"/></svg>');
+  transform: rotate(-5deg); animation: doodleFloat 11s ease-in-out infinite; animation-delay: 4.5s;
+}
+
+/* 30. Paper Airplane */
+.bg-doodle-30 {
+  top: 35%; right: 30%; width: 40px; height: 40px;
+  background-image: url('data:image/svg+xml;utf8,<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"><path d="M5 30 L55 5 L30 55 L25 35 Z M5 30 L25 35 L55 5 M25 35 L15 45 L20 40" fill="none" stroke="%23f43f5e" stroke-width="3" stroke-linejoin="round"/></svg>');
+  transform: rotate(10deg); animation: doodleFloat 8s ease-in-out infinite; animation-delay: 3s;
+}
+\n\n@keyframes doodleFloat {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(2deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+

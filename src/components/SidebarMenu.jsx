@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCheck, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
-import { Clock } from 'lucide-react';
+import { Clock, Cake } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { preload } from '../utils/preload.js';
 
 export default function SidebarMenu({
   onSettings,
@@ -91,7 +92,7 @@ export default function SidebarMenu({
             >
               <span className="sidebar-menu-item-left">
                 <Star size={16} aria-hidden="true" />
-                <span>{t('nav.starredMessages', 'Starred messages')}</span>
+                <span>{t('nav.starredMessages', 'Important messages')}</span>
               </span>
             </button>
 
@@ -127,6 +128,9 @@ export default function SidebarMenu({
               type="button"
               className="sidebar-menu-item"
               role="menuitem"
+              onMouseEnter={() => preload('settings')}
+              onFocus={() => preload('settings')}
+              onTouchStart={() => preload('settings')}
               onClick={() => {
                 setOpen(false);
                 onSettings?.();
@@ -152,6 +156,21 @@ export default function SidebarMenu({
                 <span>{t('nav.activity', 'Activity')}</span>
               </span>
             </button>
+
+              <button
+                type="button"
+                className="sidebar-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  navigate('/chat/birthdays');
+                }}
+              >
+                <span className="sidebar-menu-item-left">
+                  <Cake size={16} aria-hidden="true" />
+                  <span>{t('nav.birthdays', 'Birthday Calendar')}</span>
+                </span>
+              </button>
 
             <div className="sidebar-menu-divider" />
 

@@ -1,7 +1,20 @@
-import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, ImagePlus, Mic, Paperclip, Send, Smile, Square, Type, X } from 'lucide-react';
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { BookmarkPlus, Camera, ChevronRight, Eye, FilePen, Forward, ImagePlus, Mic, Paperclip, Pencil, Repeat2, Send, Share2, Smile, Square, Type, X } from 'lucide-react';
+import { forwardRef, lazy, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import client from '../api/client.js';
+import { connectSocket, getSocket } from '../api/socket.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage } from '../crypto/keys.js';
+import {
+  findSecretKeyForPublicKey,
+  getCurrentKeySet,
+  getKeyringSyncStatus,
+  getStoredUser
+} from '../crypto/keyStorage.js';
+import { compressVideo } from '../crypto/videoCompressor.js';
+import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
+import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
+import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia } from '../utils/offlineMediaQueue.js';
 import {
   cacheKeyForStory,
   resolveStoryMediaBlob,
@@ -10,26 +23,16 @@ import {
   unlockStoryKey,
   viewerCanSeeStory,
 } from '../utils/storyMedia.js';
-import { getSocket } from '../api/socket.js';
-import { useAuth } from '../context/AuthContext.jsx';
-import { KEY_SET_SIZE, pickRandom, sealBytes, sealMessage, unsealMessage } from '../crypto/keys.js';
-import {
-  findSecretKeyForPublicKey,
-  getCurrentKeySet,
-  getKeyring,
-  getKeyringSyncStatus,
-  getStoredUser
-} from '../crypto/keyStorage.js';
-import { COMPOSER_EMOJIS, searchEmojis } from '../utils/emojis.js';
-import { playNotificationSound, shouldNotify, showNotificationPopup } from '../utils/notificationDispatch.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import HighlightPickerSheet from './HighlightPickerSheet.jsx';
-import StoryHistoryPanel from './StoryHistoryPanel.jsx';
+import StoryCaptionOverlay from './StoryCaptionOverlay.jsx';
 import { StoryLocalPreview, StoryPublishControls, useStoryPublishOptions } from './StoryPublishControls.jsx';
-import TextStoryComposer from './TextStoryComposer.jsx';
 import { useToast } from './ToastProvider.jsx';
 import UserAvatar from './UserAvatar.jsx';
-import { compressVideo } from '../crypto/videoCompressor.js';
+import LazyChunkErrorBoundary, { ModalLoadingFallback } from './LazyChunkErrorBoundary.jsx';
+
+const HighlightPickerSheet = lazy(() => import('./HighlightPickerSheet.jsx'));
+const StoryHistoryPanel = lazy(() => import('./StoryHistoryPanel.jsx'));
+const TextStoryComposer = lazy(() => import('./TextStoryComposer.jsx'));
 const MAX_STORY_SECONDS = 60;
 const MAX_STORY_UPLOAD_BYTES = 95 * 1024 * 1024; // stay under server 100MB limit
 const COMPRESS_IF_LARGER_THAN = 4 * 1024 * 1024; // compress status videos over ~4MB
@@ -172,6 +175,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   const [stories, setStories] = useState([]);
   const [storiesLoading, setStoriesLoading] = useState(true);
   const [viewer, setViewer] = useState(null);
+  const [storyMentions, setStoryMentions] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadPhase, setUploadPhase] = useState(''); // '', 'compress', 'encrypt', 'upload'
   const [composerError, setComposerError] = useState('');
@@ -189,6 +193,12 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
   const mediaInputRef = useRef(null);
   const audioInputRef = useRef(null);
+  const storyFriends = useMemo(() => {
+      const friendSet = new Set((currentUser?.friends || []).map(String));
+      return (users || [])
+        .filter((u) => u?.id && friendSet.has(String(u.id)))
+        .map((u) => ({ id: String(u.id), username: u.username, hasAvatar: u.hasAvatar }));
+    }, [users, currentUser?.friends]);
   const grouped = useMemo(() => {
     const map = new Map();
     for (const story of stories) {
@@ -214,15 +224,15 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
     return list;
   }, [stories, currentUser?.id]);
 
-  async function loadStories() {
-    setStoriesLoading(true);
+  async function loadStories({ quiet = false } = {}) {
+    if (!quiet) setStoriesLoading(true);
     try {
       const { data } = await client.get('/stories');
       setStories(data.data || []);
     } catch {
-      setStories([]);
+      if (!quiet) setStories([]);
     } finally {
-      setStoriesLoading(false);
+      if (!quiet) setStoriesLoading(false);
     }
   }
 
@@ -238,47 +248,115 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
   useEffect(() => {
     loadStories().catch(() => { });
     loadDraftsCount().catch(() => { });
+
+    // Handle shared story links: e.g. /chat?story=:storyId
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const sharedStoryId = params.get('story');
+      if (sharedStoryId) {
+        client.get(`/stories/${sharedStoryId}`).then(({ data }) => {
+          const s = data.data;
+          if (s) {
+            setUnavailable(false);
+            setViewer({ group: { user: s.user, items: [s] }, index: 0 });
+          }
+        }).catch(() => {
+          setUnavailable(true);
+        });
+      }
+    } catch {
+      // ignore URLSearchParams errors
+    }
   }, []);
 
   useEffect(() => {
-  const socket = getSocket();
-  if (!socket) return undefined;
-  function onNew(payload) {
-    if (!payload?.id) return;
-    if (!viewerCanSeeStory(payload, currentUser?.id)) return;
-    const isOwn = String(payload.user?.id) === String(currentUser?.id);
-    setStories((prev) => {
-      if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
-      return [payload, ...prev];
-    });
+    let cancelled = false;
+    let attached = null;
 
-    if (!isOwn) {
-      const mode = notifSettings?.statusNotifications;
-      const isSelected = (notifSettings?.statusNotificationsSelectedFriends || [])
-        .map(String)
-        .includes(String(payload.user?.id));
-      const allowed = mode !== 'off' && (mode !== 'selected' || isSelected);
-      if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
-        playNotificationSound(notifSettings);
-        showNotificationPopup(
-          { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
-          notifSettings,
-          () => {},
-        );
+    function onNew(payload) {
+      if (!payload?.id) return;
+      if (!viewerCanSeeStory(payload, currentUser?.id)) return;
+      const isOwn = String(payload.user?.id) === String(currentUser?.id);
+      setStories((prev) => {
+        if (prev.some((s) => String(s.id) === String(payload.id))) return prev;
+        return [payload, ...prev];
+      });
+
+      if (!isOwn) {
+        const mode = notifSettings?.statusNotifications;
+        const isSelected = (notifSettings?.statusNotificationsSelectedFriends || [])
+          .map(String)
+          .includes(String(payload.user?.id));
+        const allowed = mode !== 'off' && (mode !== 'selected' || isSelected);
+        if (allowed && shouldNotify(notifSettings, { kind: 'status' })) {
+          playNotificationSound(notifSettings);
+          showNotificationPopup(
+            { title: payload.user?.username || 'Someone', body: 'Posted a new story' },
+            notifSettings,
+            () => {},
+          );
+        }
       }
     }
-  }
-  function onDeleted({ id } = {}) {
-    if (!id) return;
-    setStories((prev) => prev.filter((s) => String(s.id) !== String(id)));
-  }
-  socket.on('story:new', onNew);
-  socket.on('story:deleted', onDeleted);
-  return () => {
-    socket.off('story:new', onNew);
-    socket.off('story:deleted', onDeleted);
-  };
-}, [currentUser?.id, currentUser?.friends, notifSettings]);
+
+    function onDeleted({ id } = {}) {
+      if (!id) return;
+      setStories((prev) => prev.filter((s) => String(s.id) !== String(id)));
+    }
+
+    function detach() {
+      if (!attached) return;
+      attached.off('story:new', onNew);
+      attached.off('story:deleted', onDeleted);
+      attached.off('connect', onSocketConnect);
+      attached = null;
+    }
+
+    function attach(socket) {
+      if (!socket || cancelled || attached === socket) return;
+      detach();
+      attached = socket;
+      socket.on('story:new', onNew);
+      socket.on('story:deleted', onDeleted);
+      socket.on('connect', onSocketConnect);
+    }
+
+    function onSocketConnect() {
+      // Catch stories posted while we were disconnected.
+      if (!cancelled) loadStories({ quiet: true }).catch(() => {});
+    }
+
+    // Chat may connect the socket slightly after StoriesRail mounts — keep trying.
+    attach(getSocket() || connectSocket());
+    const waitTimer = setInterval(() => {
+      if (cancelled) return;
+      attach(getSocket() || connectSocket());
+    }, 1500);
+
+    // Fallback when Socket.IO is unavailable (e.g. serverless API with no signal URL).
+    const pollTimer = setInterval(() => {
+      if (cancelled || document.hidden) return;
+      const live = getSocket()?.connected;
+      if (!live) loadStories({ quiet: true }).catch(() => {});
+    }, 12000);
+
+    function onVisible() {
+      if (document.visibilityState === 'visible') {
+        loadStories({ quiet: true }).catch(() => {});
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(waitTimer);
+      clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      detach();
+    };
+  }, [currentUser?.id, notifSettings]);
 
   useEffect(() => {
     setFabHost(document.querySelector('.qc-conversation-pane'));
@@ -408,7 +486,20 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       }
 
       const status = options.status || 'published';
+      const clientStoryId = options.clientStoryId || crypto.randomUUID();
+      if (!options.skipOutbox) {
+        await saveOfflineMedia(currentUser.id, {
+          id: clientStoryId,
+          type: 'story',
+          conversationKey: `story:${currentUser.id}`,
+          filename: fileToUpload.name || 'story.enc',
+          mimetype: fileToUpload.type || 'application/octet-stream',
+          sourceBytes: new Uint8Array(await fileToUpload.arrayBuffer()),
+          storyOptions: { ttlMs, allowReplies, options: { ...options, clientStoryId, skipOutbox: true } },
+        });
+      }
       const form = new FormData();
+      form.append('clientStoryId', clientStoryId);
       const canSeal = typeof crypto !== 'undefined' && crypto.subtle;
 
       if (canSeal) {
@@ -467,7 +558,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         form.append(
           'file',
           new Blob([sealed.cipherBytes], { type: 'application/octet-stream' }),
-          fileToUpload.name || 'story.bin'
+          'story.enc'
         );
         form.append('sealed', 'true');
         const mime =
@@ -486,6 +577,14 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       form.append('ttlMs', String(ttlMs));
       form.append('allowReplies', String(allowReplies));
       form.append('viewOnce', String(Boolean(options.viewOnce)));
+      form.append('caption', options.caption || '');
+      form.append('captionMode', options.captionMode || 'fixed');
+      if (Array.isArray(options.mentions) && options.mentions.length) {
+        form.append('mentions', JSON.stringify(options.mentions));
+      }
+      if (options.captionMode === 'free' && options.captionStyle) {
+        form.append('captionStyle', JSON.stringify(options.captionStyle));
+      }
       form.append('status', status);
       if (status === 'scheduled' && options.publishAt) {
         form.append('publishAt', options.publishAt);
@@ -493,6 +592,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
 
       setUploadPhase('upload');
       await client.post('/stories', form, { timeout: 5 * 60 * 1000 });
+      await removeOfflineMedia(currentUser.id, clientStoryId);
       if (status === 'published') await loadStories();
       await loadDraftsCount();
       return true;
@@ -505,6 +605,37 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
       setUploadPhase('');
     }
   }
+  const offlineRetryRef = useRef({ inFlight: false, failCounts: new Map() });
+
+  useEffect(() => {
+    async function retryStories() {
+      if (!navigator.onLine || !currentUser?.id) return;
+      // Never let two retry passes overlap — that's what turns one stuck
+      // item into a growing pile of concurrent duplicate requests.
+      if (offlineRetryRef.current.inFlight) return;
+      offlineRetryRef.current.inFlight = true;
+      try {
+        const pending = (await getOfflineMedia(currentUser.id)).filter((entry) => entry.type === 'story');
+        for (const entry of pending) {
+          const fails = offlineRetryRef.current.failCounts.get(entry.id) || 0;
+          if (fails >= 3) continue; // stop hammering a permanently broken item
+          const file = new File([entry.sourceBytes], entry.filename || 'story.enc', { type: entry.mimetype || 'application/octet-stream' });
+          const ok = await uploadStory(file, entry.storyOptions?.ttlMs, entry.storyOptions?.allowReplies, entry.storyOptions?.options || {});
+          if (!ok) {
+            offlineRetryRef.current.failCounts.set(entry.id, fails + 1);
+          } else {
+            offlineRetryRef.current.failCounts.delete(entry.id);
+          }
+        }
+      } finally {
+        offlineRetryRef.current.inFlight = false;
+      }
+    }
+    const retry = () => retryStories().catch(() => {});
+    window.addEventListener('online', retry);
+    retry();
+    return () => window.removeEventListener('online', retry);
+  }, [currentUser?.id]);
 
   function closeComposer() {
     if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
@@ -687,6 +818,13 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
           users={users}
           onError={onError}
           onClose={() => setViewer(null)}
+          onReshareStory={(file) => {
+            setViewer(null);
+            if (pendingPreviewUrl) URL.revokeObjectURL(pendingPreviewUrl);
+            setPendingQueue([file]);
+            setPendingIndex(0);
+            setPendingPreviewUrl(URL.createObjectURL(file));
+          }}
           onDeleted={async () => {
             setViewer(null);
             await loadStories();
@@ -708,6 +846,7 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         <StoryComposer
          file={pendingQueue[pendingIndex]}
           previewUrl={pendingPreviewUrl}
+          friends={storyFriends}
           onCancel={closeComposer}
           onConfirm={confirmPostStory}
           uploading={uploading}
@@ -719,27 +858,38 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         />
       )}
             {textComposerOpen && !pendingQueue.length && (
-        <TextStoryComposer
-          onCancel={() => setTextComposerOpen(false)}
-          onConfirm={confirmPostTextStory}
-          uploading={uploading}
-          onError={onError}
-        />
+        <LazyChunkErrorBoundary onClose={() => setTextComposerOpen(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <TextStoryComposer
+              friends={storyFriends}
+              onCancel={() => setTextComposerOpen(false)}
+              onConfirm={confirmPostTextStory}
+              uploading={uploading}
+              onError={onError}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
-       <StoryHistoryPanel
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        currentUserId={currentUser?.id}
-        initialTab={historyTab}
-        onError={onError}
-        onChanged={() => {
-          loadStories();
-          loadDraftsCount();
-        }}
-        onPreviewDraft={openDraftPreview}
-        onPreviewStory={openActiveStoryPreview}
-      />
+      {historyOpen && (
+        <LazyChunkErrorBoundary onClose={() => setHistoryOpen(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <StoryHistoryPanel
+              open={historyOpen}
+              onClose={() => setHistoryOpen(false)}
+              currentUserId={currentUser?.id}
+              initialTab={historyTab}
+              onError={onError}
+              onChanged={() => {
+                loadStories();
+                loadDraftsCount();
+              }}
+              onPreviewDraft={openDraftPreview}
+              onPreviewStory={openActiveStoryPreview}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
       {createSheetOpen &&
         createPortal(
@@ -873,14 +1023,22 @@ const StoriesRail = forwardRef(function StoriesRail({ currentUser, users = [], o
         )}
 
       {!uploading &&
-         !pendingQueue.length &&
+        !pendingQueue.length &&
         !textComposerOpen &&
         !createSheetOpen &&
         !viewer &&
         fabHost &&
         createPortal(
           <div className="status-fabs" aria-label="Create status">
-            {/* Single camera FAB — text status lives in its create sheet. */}
+            <button
+              type="button"
+              className="status-fab text"
+              title="Text status"
+              aria-label="Text status"
+              onClick={() => setTextComposerOpen(true)}
+            >
+              <Pencil size={20} aria-hidden />
+            </button>
             <button
               type="button"
               className="status-fab camera"
@@ -938,8 +1096,9 @@ function StoryViewersSheet({ viewerCount, viewers, viewersHidden, viewersHiddenR
   );
 }
 
-function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError }) {
+function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, onDeleted, onError, onReshareStory }) {
   const { showToast } = useToast();
+  const [resharing, setResharing] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [viewers, setViewers] = useState([]);
   const [viewersHidden, setViewersHidden] = useState(false);
@@ -950,6 +1109,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
   const [blockedReason, setBlockedReason] = useState('');
   const [loadPhase, setLoadPhase] = useState(''); // '', 'download', 'decrypt'
   const [downloadPct, setDownloadPct] = useState(null);
+  const [slowLoad, setSlowLoad] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [sendingReply, setSendingReply] = useState(false);
   const [replySentFlash, setReplySentFlash] = useState('');
@@ -991,13 +1151,24 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     const abortController = new AbortController();
     let objectUrl;
     let usedCache = false;
+    let settled = false;
 
     setMediaUrl(null);
     setMediaBlob(null);
     setBlockedReason('');
     setLoadPhase('');
     setDownloadPct(null);
+    setSlowLoad(false);
     setSaveHighlightOpen(false);
+
+    const slowTimer = setTimeout(() => setSlowLoad(true), 5000);
+    // Hard fail-safe: never leave the viewer on an infinite spinner.
+    const failSafeTimer = setTimeout(() => {
+      if (settled || abortController.signal.aborted) return;
+      settled = true;
+      setLoadPhase('');
+      setBlockedReason('Story media is taking too long — close and open again');
+    }, 50_000);
 
     // The view-once "consumed" flag is written by this /view ping. It must fire
     // AFTER the media has actually loaded — never before or concurrently — or a
@@ -1015,17 +1186,24 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
       const cachedBlob = storyMediaBlobCache.get(cacheKey);
       if (cachedUrl && cachedBlob) {
         usedCache = true;
+        settled = true;
         setMediaUrl(cachedUrl);
         setMediaBlob(cachedBlob);
         pingViewed();
         return;
       }
 
+      let unlocked;
       if (story.sealed) {
-        const unlocked = unlockStoryKey(story, currentUserId);
+        unlocked = unlockStoryKey(story, currentUserId);
         const ivB64 = unlocked?.payload?.ivB64 || story.contentIv;
         if (!unlocked?.ok || !unlocked?.payload?.keyB64 || !ivB64) {
-          setBlockedReason('Sealed story — no envelope for your keys');
+          settled = true;
+          const reason =
+            unlocked?.reason === 'no-secret'
+              ? 'Sealed story — your local keys do not match (re-import keys.txt)'
+              : 'Sealed story — no envelope for your keys';
+          setBlockedReason(reason);
           return;
         }
       }
@@ -1033,6 +1211,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
       setLoadPhase('download');
       const blob = await resolveStoryMediaBlob(story, currentUserId, {
         signal: abortController.signal,
+        precomputedUnlock: unlocked,
         onDownloadProgress: (evt) => {
           if (!evt.total) return;
           setDownloadPct(Math.min(99, Math.round((evt.loaded / evt.total) * 100)));
@@ -1049,13 +1228,17 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 
       objectUrl = storyMediaCache.get(cacheKey) || URL.createObjectURL(blob);
       if (!storyMediaCache.has(cacheKey)) storyMediaCache.set(cacheKey, objectUrl);
+      settled = true;
       setMediaUrl(objectUrl);
       setMediaBlob(blob);
       setLoadPhase('');
       pingViewed();
     })().catch((err) => {
-      if (err.name === 'CanceledError' || err.name === 'AbortError') return;
+      // Only ignore abort if *this* viewer instance was cleaned up.
+      if (abortController.signal.aborted) return;
+      if (err?.name === 'CanceledError' || err?.name === 'AbortError') return;
 
+      settled = true;
       setMediaUrl(null);
       setMediaBlob(null);
       setLoadPhase('');
@@ -1065,24 +1248,37 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
         if (status === 403) {
           setBlockedReason('Sealed story — no envelope for your keys');
         } else if (status === 404) {
-          setBlockedReason('Story media is missing on the server');
-        } else if (err.code === 'ECONNABORTED') {
+          setBlockedReason(
+            isOwn
+              ? 'This story’s file is missing from storage — delete it and post again'
+              : 'Story media is missing on the server (ask them to re-post)',
+          );
+        } else if (status === 502) {
+          setBlockedReason('Could not reach story storage — try again in a moment');
+        } else if (err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))) {
           setBlockedReason('Status download timed out — try again');
         } else if (err.message?.includes('No decryption key')) {
           setBlockedReason('Sealed story — no envelope for your keys');
+        } else if (/OperationError|decrypt/i.test(String(err.message || err.name || ''))) {
+          setBlockedReason('Could not decrypt this sealed story');
         } else {
           setBlockedReason('Could not decrypt this sealed story');
         }
       } else {
         setBlockedReason(
-          err.code === 'ECONNABORTED'
-            ? 'Status download timed out — try again'
-            : 'Failed to load story media'
+          err?.response?.status === 404
+            ? isOwn
+              ? 'This story’s file is missing from storage — delete it and post again'
+              : 'Story media is missing on the server'
+            : err.code === 'ECONNABORTED' || /timeout/i.test(String(err.message || ''))
+              ? 'Status download timed out — try again'
+              : 'Failed to load story media'
         );
       }
     });
-
     return () => {
+      clearTimeout(slowTimer);
+      clearTimeout(failSafeTimer);
       abortController.abort();
       if (objectUrl && !usedCache) {
         const key = cacheKeyForStory(story);
@@ -1091,13 +1287,19 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     };
   }, [story.id, story.sealed, story.contentIv, story.mimetype, currentUserId]);
 
-  // Prefetch next 1–2 stories so advancing feels instant.
+  // Prefetch next 1–2 stories so advancing feels instant — but only AFTER the
+  // current story's own media has actually started loading, so it never
+  // competes with the story the person is looking at right now.
   useEffect(() => {
+    if (!mediaUrl && !blockedReason) return undefined; // current story still loading — wait
+
     const controllers = [];
     const toPrefetch = [group.items[index + 1], group.items[index + 2]].filter(Boolean);
+    let cancelled = false;
 
     (async () => {
       for (const nextStory of toPrefetch) {
+        if (cancelled) return;
         if (!viewerCanSeeStory(nextStory, currentUserId)) continue;
         const nextCacheKey = cacheKeyForStory(nextStory);
         if (storyMediaBlobCache.has(nextCacheKey)) continue;
@@ -1114,10 +1316,10 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     })();
 
     return () => {
+      cancelled = true;
       for (const c of controllers) c.abort();
     };
-  }, [index, group.items, currentUserId]);
-
+  }, [index, group.items, currentUserId, mediaUrl, blockedReason]);
   useEffect(() => {
     if (!isOwn) return;
     const socket = getSocket();
@@ -1610,6 +1812,80 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
     };
   }, []);
 
+  async function handleReshareStory() {
+    if (resharing) return;
+    if (!mediaBlob && !mediaUrl) {
+      showToast('Status media is still loading...', 'info');
+      return;
+    }
+    try {
+      setResharing(true);
+      let file;
+      const ext =
+        story.mediaType === 'video'
+          ? 'mp4'
+          : story.mediaType === 'audio'
+            ? 'webm'
+            : 'jpg';
+      const defaultMime =
+        story.mediaType === 'video'
+          ? 'video/mp4'
+          : story.mediaType === 'audio'
+            ? 'audio/webm'
+            : 'image/jpeg';
+
+      if (mediaBlob) {
+        file = new File([mediaBlob], `reshare-${story.id}.${ext}`, {
+          type: mediaBlob.type || defaultMime,
+        });
+      } else {
+        const resp = await fetch(mediaUrl);
+        const b = await resp.blob();
+        file = new File([b], `reshare-${story.id}.${ext}`, {
+          type: b.type || defaultMime,
+        });
+      }
+
+      onClose();
+      onReshareStory?.(file);
+    } catch (err) {
+      showToast(err?.message || 'Failed to prepare story for reshare', 'error');
+    } finally {
+      setResharing(false);
+    }
+  }
+
+  async function handleShareStory() {
+    try {
+      const shareUrl = `${window.location.origin}/chat?story=${story.id}`;
+      const shareTitle = `${group.user?.username || 'User'}'s story on QuantumChat`;
+      const shareText = story.caption ? `Check out this story: "${story.caption}"` : `Check out this story on QuantumChat!`;
+
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        try {
+          await navigator.share({
+            title: shareTitle,
+            text: shareText,
+            url: shareUrl,
+          });
+          showToast('Story shared!', 'success');
+          return;
+        } catch (err) {
+          if (err?.name === 'AbortError') return; // User dismissed native share sheet
+        }
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        showToast('Story link copied to clipboard!', 'success');
+      } else {
+        showToast(shareUrl, 'info', 4000);
+      }
+    } catch {
+      showToast('Could not copy story link', 'error');
+    }
+  }
+
   return createPortal(
     <div className="story-viewer-overlay" onClick={onClose}>
       <div className="story-viewer" onClick={(e) => e.stopPropagation()}>
@@ -1630,9 +1906,34 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
             </div>
             {story.sealed ? <span className="story-sealed-badge">Sealed X5</span> : null}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close">
-            <X size={18} strokeWidth={2.4} aria-hidden />
-          </button>
+          <div className="story-viewer-top-actions">
+            {!isOwn && (
+              <>
+                <button
+                  type="button"
+                  className="story-viewer-share-btn"
+                  onClick={handleReshareStory}
+                  disabled={resharing}
+                  aria-label="Reshare to your status"
+                  title="Reshare to your status"
+                >
+                  <Repeat2 size={17} strokeWidth={2.2} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="story-viewer-share-btn"
+                  onClick={handleShareStory}
+                  aria-label="Share story link"
+                  title="Share story link"
+                >
+                  <Share2 size={17} strokeWidth={2.2} aria-hidden />
+                </button>
+              </>
+            )}
+            <button type="button" onClick={onClose} aria-label="Close" title="Close">
+              <X size={18} strokeWidth={2.4} aria-hidden />
+            </button>
+          </div>
         </div>
         <div className="story-viewer-progress">
           {group.items.map((s, i) => (
@@ -1656,18 +1957,37 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
               <p className="empty-hint">
                 {loadPhase === 'decrypt'
                   ? 'Decrypting…'
-                  : downloadPct != null
+                  : downloadPct != null && downloadPct > 0
                     ? `Downloading… ${downloadPct}%`
-                    : 'Loading status…'}
+                    : slowLoad
+                      ? 'Still loading — this one is taking longer than usual'
+                      : 'Loading status…'}
               </p>
             </div>
           )}
-          {mediaUrl && story.mediaType === 'image' && <img src={mediaUrl} alt="" />}
+          {mediaUrl && (story.mediaType === 'image' || story.mediaType === 'text') && <img src={mediaUrl} alt="" />}
           {mediaUrl && story.mediaType === 'video' && <video src={mediaUrl} autoPlay controls />}
           {mediaUrl && story.mediaType === 'audio' && <audio src={mediaUrl} autoPlay controls />}
           {burst && <span className="story-reaction-burst">{burst}</span>}
         </div>
-        {story.caption && <p className="story-caption">{story.caption}</p>}
+        {story.caption && story.captionMode === 'free' && story.captionStyle && (
+          <StoryCaptionOverlay caption={story.caption} style={story.captionStyle} editable={false} />
+        )}
+        {story.caption && story.captionMode !== 'free' && (
+          <p className="story-caption">{story.caption}</p>
+        )}
+        {Array.isArray(story.mentions) && story.mentions.length > 0 && (
+          <p className="story-mentions-line">
+            with{' '}
+            {story.mentions.map((m, i) => (
+              <span key={m.user.id} className="mention-chip">
+                {m.visibility === 'hidden' ? '🔒 ' : ''}
+                @{m.user.username}
+                {i < story.mentions.length - 1 ? ', ' : ''}
+              </span>
+            ))}
+          </p>
+        )}
         <div className="story-viewer-actions">
             {isOwn && (
               <div className="story-viewer-actions-left">
@@ -1709,14 +2029,18 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
           />
         )}
         {isOwn && saveHighlightOpen && (
-          <HighlightPickerSheet
-            open={saveHighlightOpen}
-            onClose={() => setSaveHighlightOpen(false)}
-            onError={onError}
-            mediaUrl={mediaUrl}
-            mediaBlob={mediaBlob}
-            story={story}
-          />
+          <LazyChunkErrorBoundary onClose={() => setSaveHighlightOpen(false)}>
+            <Suspense fallback={<ModalLoadingFallback />}>
+              <HighlightPickerSheet
+                open={saveHighlightOpen}
+                onClose={() => setSaveHighlightOpen(false)}
+                onError={onError}
+                mediaUrl={mediaUrl}
+                mediaBlob={mediaBlob}
+                story={story}
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
         )}
        {!isOwn && story.allowReplies !== false && (
           <form
@@ -1827,6 +2151,28 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
                 }}
               >
                 {gifPickerOpen ? <X size={17} strokeWidth={2.2} /> : 'GIF'}
+              </button>
+
+              <button
+                type="button"
+                className="story-icon-btn"
+                aria-label="Reshare to your status"
+                title="Reshare to your status"
+                onClick={handleReshareStory}
+                disabled={resharing || sendingReply || replyRecording}
+              >
+                <Repeat2 size={17} strokeWidth={2.2} />
+              </button>
+
+              <button
+                type="button"
+                className="story-icon-btn"
+                aria-label="Share story"
+                title="Share story"
+                onClick={handleShareStory}
+                disabled={sendingReply || replyRecording}
+              >
+                <Share2 size={17} strokeWidth={2.2} />
               </button>
             </div>
 
@@ -1975,6 +2321,7 @@ function StoryViewer({ group, startIndex, currentUserId, users = [], onClose, on
 function StoryComposer({
   file,
   previewUrl,
+  friends = [],
   onCancel,
   onConfirm,
   uploading,
@@ -2065,16 +2412,25 @@ function StoryComposer({
           </button>
         </div>
 
-        <div className="story-composer-preview">
+        <div className="story-composer-preview" style={{ position: 'relative' }}>
           {file.type.startsWith('image/') && <img ref={imagePreviewRef} alt="" />}
           {isVideoFile && <video ref={videoPreviewRef} controls playsInline />}
           {file.type.startsWith('audio/') && <audio ref={audioPreviewRef} controls />}
+          {opts.captionMode === 'free' && (
+            <StoryCaptionOverlay
+              caption={opts.caption}
+              onCaptionChange={opts.setCaption}
+              style={opts.captionStyle}
+              onStyleChange={opts.setCaptionStyle}
+            />
+          )}
         </div>
 
         {displayError ? <p className="story-composer-error" role="alert">{displayError}</p> : null}
 
         <StoryPublishControls
           opts={opts}
+          friends={friends}
           busy={uploading}
           canSubmit={!uploading}
           busyLabel={busyPostLabel}

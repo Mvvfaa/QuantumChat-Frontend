@@ -5,6 +5,7 @@ import {
   Bookmark,
   HelpCircle,
   Info,
+  LayoutDashboard,
   MessageSquare,
   Mic,
   Phone,
@@ -18,7 +19,7 @@ import {
   Video,
   X
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
@@ -27,11 +28,8 @@ import client, { muteChat, unmuteChat } from "../api/client.js";
 import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import { getPeerVaultDecoyStatus } from "../api/vault.js";
-import AIAssistantPanel from "../components/AIAssistantPanel.jsx";
 import CallOverlay from "../components/CallOverlay.jsx";
-import CameraCapture from "../components/CameraCapture.jsx";
 import ChatEmptyState from "../components/chat/ChatEmptyState.jsx";
-import ChatMediaModal from "../components/chat/ChatMediaModal.jsx";
 import ChatOptionsMenu from "../components/chat/ChatOptionsMenu.jsx";
 import ChatShell from "../components/chat/ChatShell.jsx";
 import ComposerPlusSheet from "../components/chat/ComposerPlusSheet.jsx";
@@ -40,29 +38,37 @@ import InfoPanel from "../components/chat/InfoPanel.jsx";
 import MediaSendPreview from "../components/chat/MediaSendPreview.jsx";
 import MessageActionSheet from "../components/chat/MessageActionSheet.jsx";
 import SwipeableMessage from "../components/chat/SwipeableMessage.jsx";
-import ChatThemeModal from '../components/ChatThemeModal.jsx';
 import ClearChatModal from "../components/ClearChatModal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
-import CreateGroupModal from "../components/CreateGroupModal.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
 import DragDropOverlay from "../components/DragDropOverlay.jsx";
-import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
-import ForwardModal from "../components/ForwardModal.jsx";
-import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
-import ImageLightbox from "../components/ImageLightbox.jsx";
-import MeetingOverlay from "../components/MeetingOverlay.jsx";
-import MessageInfoModal from "../components/MessageInfoModal.jsx";
 import MessageSearch from "../components/MessageSearch.jsx";
-import SettingsModal from "../components/SettingsModal.jsx";
-import StarredMessagesModal from "../components/StarredMessagesModal.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
 import BottomSheet from "../components/ui/BottomSheet.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
-import UserProfileModal from "../components/UserProfileModal.jsx";
 import VaultSetupModal from "../components/VaultSetupModal.jsx";
 import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
+import LazyChunkErrorBoundary, { ModalLoadingFallback, PanelLoadingFallback } from "../components/LazyChunkErrorBoundary.jsx";
+import { preload, preloadOnIdle } from "../utils/preload.js";
+
+const AIAssistantPanel = lazy(() => import("../components/AIAssistantPanel.jsx"));
+const CameraCapture = lazy(() => import("../components/CameraCapture.jsx"));
+const ChatMediaModal = lazy(() => import("../components/chat/ChatMediaModal.jsx"));
+const ChatThemeModal = lazy(() => import("../components/ChatThemeModal.jsx"));
+const CreateGroupModal = lazy(() => import("../components/CreateGroupModal.jsx"));
+const EditHistoryModal = lazy(() => import("../components/EditHistoryModal.jsx"));
+const ForwardModal = lazy(() => import("../components/ForwardModal.jsx"));
+const GroupSettingsModal = lazy(() => import("../components/GroupSettingsModal.jsx"));
+const GroupCommandCenter = lazy(() => import("../components/GroupCommandCenter.jsx"));
+const ImageLightbox = lazy(() => import("../components/ImageLightbox.jsx"));
+const MeetingOverlay = lazy(() => import("../components/MeetingOverlay.jsx"));
+const MessageInfoModal = lazy(() => import("../components/MessageInfoModal.jsx"));
+const SettingsModal = lazy(() => import("../components/SettingsModal.jsx"));
+const StarredMessagesModal = lazy(() => import("../components/StarredMessagesModal.jsx"));
+const TimeCapsuleModal = lazy(() => import("../components/TimeCapsuleModal.jsx"));
+const UserProfileModal = lazy(() => import("../components/UserProfileModal.jsx"));
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
 import { useVault } from "../context/VaultContext.jsx";
@@ -92,18 +98,26 @@ import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 import activityStore from "../utils/activityStore.js";
+import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia, updateOfflineMedia } from "../utils/offlineMediaQueue.js";
+import {
+  getAllOfflineMessages,
+  getOfflineMessages,
+  removeOfflineMessage,
+  saveOfflineMessage,
+} from "../utils/offlineMessageQueue.js";
 import {
   getArchivedChatKeys,
   getChatDraft,
   getInfoPanelOpen,
-  getLastQuickReaction,
   getMutedChatKeys,
+  getPinnedChatKeys,
   isChatMuted,
   saveChatDraft,
   setInfoPanelOpen,
   setLastQuickReaction,
   toggleArchiveChat,
   toggleMuteChat,
+  togglePinChat
 } from "../utils/chatPrefs.js";
 import {
   chatPathForSelection,
@@ -126,15 +140,22 @@ import {
 } from "../utils/hiddenChats.js";
 import {
   clearAllStarred,
+  clearAutoImportantRemoval,
   deleteMessageForMe,
+  getAutoImportantRemovedIds,
   getDeletedForMeIds,
   getPinnedIds,
   getStarredEntries,
   getStarredIds,
+  rememberAutoImportantRemoval,
   restoreStarredEntries,
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
+import {
+  getAutomaticImportantSource,
+  isAutomaticImportantMessage,
+} from "../utils/importantMessages.js";
 import { getMessagePreviewText } from "../utils/messagePreview.js";
 import {
   buildGroupedNotificationText,
@@ -154,26 +175,21 @@ import {
   setConversationActivity,
 } from "../utils/readState.js";
 import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
+import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
 const MAX_VOICE_SECONDS = 60;
-const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB — matches backend MAX_ATTACHMENT_SIZE
 // Ciphertext above this size uploads in sequential chunks instead of one
 // request body — must match backend CHUNK_SIZE in middleware/upload.js.
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB
 
-function isRecentlyActive(iso) {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() < ACTIVE_WINDOW_MS;
-}
-
-function formatLastSeen(iso) {
-  if (!iso) return "never logged in";
-  if (isRecentlyActive(iso)) return "online";
-  return `last seen ${new Date(iso).toLocaleString()}`;
+/** Never invent "online" from a timestamp — only real presence may say online. */
+function formatLastSeenLabel(iso) {
+  if (!iso) return "last seen recently";
+  return formatLastSeen(iso);
 }
 
 function formatVoiceTimer(seconds) {
@@ -308,6 +324,9 @@ export default function Chat() {
   const [archivedKeys, setArchivedKeys] = useState(() =>
     getArchivedChatKeys(user?.id),
   );
+  const [pinnedChatKeys, setPinnedChatKeys] = useState(() =>
+    getPinnedChatKeys(user?.id),
+  );
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [clearChatOpen, setClearChatOpen] = useState(false);
@@ -323,6 +342,17 @@ export default function Chat() {
   const [contactLookupResult, setContactLookupResult] = useState(null);
   const [contactLookupLoading, setContactLookupLoading] = useState(false);
   const [contactLookupError, setContactLookupError] = useState("");
+
+  // Preload MeetingOverlay chunk on idle and when a chat that can start a call is opened
+  useEffect(() => {
+    preloadOnIdle('meeting', 2500);
+  }, []);
+
+  useEffect(() => {
+    if (selected) {
+      preload('meeting');
+    }
+  }, [selected]);
   // Custom UI feature states
   const [searchOpen, setSearchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -334,6 +364,8 @@ export default function Chat() {
     getDeletedForMeIds(user?.id),
   );
   const [starredIds, setStarredIds] = useState(() => getStarredIds(user?.id));
+  const [importantEntries, setImportantEntries] = useState([]);
+  const [importantLoading, setImportantLoading] = useState(false);
   const [showStarredMessages, setShowStarredMessages] = useState(false);
   const [showChatMedia, setShowChatMedia] = useState(false);
   const [starredScope, setStarredScope] = useState('all'); // 'all' | 'chat'
@@ -347,9 +379,12 @@ export default function Chat() {
   const [uploads, setUploads] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [disappearSeconds, setDisappearSeconds] = useState(0);
+  const importantEntriesRef = useRef([]);
+  const [capsuleUnlocksAt, setCapsuleUnlocksAt] = useState("");
+  const [showCapsulePicker, setShowCapsulePicker] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [mediaPreviewSending, setMediaPreviewSending] = useState(false);
-   const [mediaCompressing, setMediaCompressing] = useState(false);
+  const [mediaCompressing, setMediaCompressing] = useState(false);
   const [mediaCompressProgress, setMediaCompressProgress] = useState(0);
   const [mediaCompressPhase, setMediaCompressPhase] = useState('encoding');
   const [videoPlayer, setVideoPlayer] = useState(null);
@@ -357,6 +392,7 @@ export default function Chat() {
   const [forwardUntilSeconds, setForwardUntilSeconds] = useState(0);
   const [gallery, setGallery] = useState(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [profileUserId, setProfileUserId] = useState(null);
   const [groupComposerMenu, setGroupComposerMenu] = useState(null);
   const [pollDraft, setPollDraft] = useState(null);
@@ -555,6 +591,7 @@ useEffect(() => {
   const usersRef = useRef([]);
   const groupsRef = useRef([]);
   const storiesRailRef = useRef(null);
+  const retryingOutboxRef = useRef(new Set());
   selectedRef.current = selected;
   userRef.current = user;
   messagesRef.current = messages;
@@ -573,6 +610,20 @@ useEffect(() => {
       "typing:stop",
       target.to ? { to: target.to } : { groupId: target.groupId },
     );
+  }
+
+  function pendingMessageFromOutbox(entry) {
+    return {
+      id: `outbox-${entry.id}`,
+      _id: `outbox-${entry.id}`,
+      from: user.id,
+      ...(entry.type === "group" ? { group: entry.conversationId } : { to: entry.conversationId }),
+      text: entry.displayText,
+      createdAt: entry.queuedAt,
+      _status: "waiting",
+      _pending: true,
+      replyTo: entry.replyTo || null,
+    };
   }
 
   function syncTypingPrivacy() {
@@ -1064,6 +1115,112 @@ useEffect(() => {
     [user, resolveMySecretKey],
   );
 
+  // Refs so Important-messages mapping can use latest directory/decrypt
+  // helpers without re-fetching (and re-toasting) every time users/groups change.
+  const importantDecorateRef = useRef(decorate);
+  importantDecorateRef.current = decorate;
+  const importantUsersRef = useRef(users);
+  importantUsersRef.current = users;
+  const importantGroupsRef = useRef(groups);
+  importantGroupsRef.current = groups;
+
+  const loadImportantMessages = useCallback(async () => {
+    if (!user?.id) return;
+    setImportantLoading(true);
+    try {
+      const { data } = await client.get('/messages/important');
+      const markedAtById = new Map(
+        (data?.data?.entries || []).map((entry) => [String(entry.messageId), entry.markedAt]),
+      );
+      const directoryUsers = importantUsersRef.current;
+      const directoryGroups = importantGroupsRef.current;
+      const next = (data?.data?.messages || []).map((raw) => {
+        const message = importantDecorateRef.current(raw);
+        const messageId = String(message.id || message._id);
+        const groupId = raw.group ? String(raw.group) : null;
+        const group = groupId
+          ? directoryGroups.find((candidate) => String(candidate.id) === groupId)
+          : null;
+        const peerId = raw.group
+          ? groupId
+          : String(raw.from) === String(user.id) ? raw.to : raw.from;
+        const peer = peerId
+          ? directoryUsers.find((candidate) => String(candidate.id) === String(peerId))
+          : null;
+        const type = groupId ? 'group' : 'dm';
+        const title = group?.name || getDisplayName(peer, i18n.language) || 'Chat';
+        return {
+          ...message,
+          id: messageId,
+          type,
+          conversationId: groupId || peerId,
+          conversationKey: groupId ? conversationKeyForGroup(groupId) : conversationKeyForUser(peerId),
+          title,
+          from: raw.from,
+          createdAt: raw.createdAt,
+          hasAttachment: Boolean(message.attachment),
+          attachmentFilename: message.attachment?.filename || null,
+          important: true,
+          isImportant: true,
+          importantAt: markedAtById.get(messageId) || null,
+        };
+      });
+      setImportantEntries(next);
+    } catch (err) {
+      setImportantEntries([]);
+      // Background prefetch — never surface raw validation noise like
+      // "Invalid user id" (happens when an older API treats "important" as a
+      // peer id). Chat itself still works.
+      const status = err.response?.status;
+      const msg = err.response?.data?.error || '';
+      if (status && status !== 400 && status !== 404 && msg !== 'Invalid user id') {
+        showToast(msg || "Couldn't load Important messages", 'error');
+      }
+    } finally {
+      setImportantLoading(false);
+    }
+  }, [getDisplayName, i18n.language, showToast, user?.id]);
+
+  useEffect(() => {
+    if (hasLocalKeyring) void loadImportantMessages();
+  }, [hasLocalKeyring, loadImportantMessages]);
+
+  useEffect(() => {
+    importantEntriesRef.current = importantEntries;
+  }, [importantEntries]);
+
+  const markMessageImportantIfNeeded = useCallback(async (rawMessage) => {
+    if (!rawMessage || !user?.id) return;
+    const messageId = String(rawMessage.id || rawMessage._id || '');
+    if (!messageId) return;
+    const alreadyImportant = importantEntriesRef.current.some((entry) => String(entry.id || entry._id) === messageId);
+    if (alreadyImportant) return;
+    const autoSource = getAutomaticImportantSource(rawMessage);
+    if (!autoSource) return;
+    if (getAutoImportantRemovedIds(user.id).includes(messageId)) return;
+
+    try {
+      await client.post(`/messages/${messageId}/important`);
+      setImportantEntries((current) => [{
+        ...rawMessage,
+        id: messageId,
+        title: rawMessage.title || 'Chat',
+        conversationId: rawMessage.conversationId || rawMessage.group || rawMessage.to || rawMessage.from,
+        type: rawMessage.group ? 'group' : 'dm',
+        hasAttachment: Boolean(rawMessage.attachment || rawMessage.attachments?.length),
+        attachmentFilename: rawMessage.attachment?.filename || rawMessage.attachments?.[0]?.filename || null,
+        text: rawMessage.text || rawMessage.content || null,
+        important: true,
+        isImportant: true,
+        importantAt: new Date().toISOString(),
+        importantSource: autoSource,
+      }, ...current]);
+    } catch (err) {
+      // Ignore duplicate or noisy auto-save failures; the backend already
+      // guards against repeated writes for the same message.
+    }
+  }, [user?.id]);
+
   const recordActivityFromMessage = useCallback(
     (raw) => {
       const at = raw.createdAt || new Date().toISOString();
@@ -1518,6 +1675,9 @@ useEffect(() => {
           }
         }
         const decoratedForNotif = decorate(raw);
+              if (raw.timeCapsule && raw.capsuleDeliveredAt) {
+        showToast('✨ A time capsule just unlocked!', 'success', 5000);
+      }
         const storyPayload = parseStoryPayload(decoratedForNotif.text);
         const reactionsExcluded =
           notifSettings?.messageNotifications === "all_except_reactions" &&
@@ -1673,6 +1833,7 @@ useEffect(() => {
         }
         return next;
       });
+      void markMessageImportantIfNeeded(raw);
 
       if (String(raw.from) !== String(user.id)) {
         const socket = getSocket();
@@ -1969,6 +2130,7 @@ useEffect(() => {
         setSelected(null);
         setMessages([]);
         setShowGroupSettings(false);
+        setShowCommandCenter(false);
         if (location.pathname !== "/chat") navigate("/chat");
       }
     }
@@ -2118,18 +2280,27 @@ useEffect(() => {
     }
 
     function handlePresenceUpdate({ userId, online, lastLoginAt } = {}) {
+      const id = String(userId);
       setOnlineUserIds((prev) => {
         const next = new Set(prev);
-        if (online) next.add(String(userId));
-        else next.delete(String(userId));
+        if (online) next.add(id);
+        else next.delete(id);
         return next;
       });
-      if (!online && lastLoginAt) {
+      if (lastLoginAt) {
         setUsers((prev) =>
           prev.map((u) =>
-            String(u.id) === String(userId) ? { ...u, lastLoginAt } : u,
+            String(u.id) === id ? { ...u, lastLoginAt } : u,
           ),
         );
+        setSelected((cur) => {
+          if (!cur || cur.type !== "dm" || String(cur.id) !== id) return cur;
+          if (cur.peer?.lastLoginAt === lastLoginAt) return cur;
+          return {
+            ...cur,
+            peer: { ...(cur.peer || {}), lastLoginAt },
+          };
+        });
       }
     }
 
@@ -2379,26 +2550,39 @@ useEffect(() => {
 
     let cancelled = false;
     let inFlight = false;
+    let lastSocketPeerSyncAt = 0;
+    let lastWatchedPeerId = null;
 
     async function syncPresence() {
       if (cancelled || inFlight) return;
       if (document.visibilityState === "hidden") return;
       const socket = getSocket();
-      if (socket?.connected) return;
+      const socketConnected = Boolean(socket?.connected);
+
+      const current = selectedRef.current;
+      const watchPeerId =
+        current?.type === "dm" &&
+          !current.isSelfChat &&
+          String(current.id) !== String(user.id)
+          ? String(current.id)
+          : null;
+      const watchGroupId =
+        current?.type === "group" ? String(current.id) : null;
+      const typing = presenceTypingRef.current || {};
+
+      // Socket owns live online/typing. Still heartbeat when watching a peer so
+      // last-seen stays fresh (and as full fallback when the socket is down).
+      if (socketConnected) {
+        if (!watchPeerId) return;
+        const peerChanged = watchPeerId !== lastWatchedPeerId;
+        lastWatchedPeerId = watchPeerId;
+        // Avoid hammering the DB every 2s while Socket.IO is already connected.
+        if (!peerChanged && Date.now() - lastSocketPeerSyncAt < 12_000) return;
+        lastSocketPeerSyncAt = Date.now();
+      }
 
       inFlight = true;
       try {
-        const current = selectedRef.current;
-        const watchPeerId =
-          current?.type === "dm" &&
-            !current.isSelfChat &&
-            String(current.id) !== String(user.id)
-            ? String(current.id)
-            : null;
-        const watchGroupId =
-          current?.type === "group" ? String(current.id) : null;
-        const typing = presenceTypingRef.current || {};
-
         const data = await postPresenceHeartbeat({
           typingTo: typing.to || null,
           typingGroupId: typing.groupId || null,
@@ -2408,7 +2592,33 @@ useEffect(() => {
 
         if (cancelled) return;
 
-        setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+        if (!socketConnected) {
+          setOnlineUserIds(new Set((data.onlineUserIds || []).map(String)));
+        }
+
+        const peerPresence = data.peerPresence;
+        if (peerPresence?.userId) {
+          const peerId = String(peerPresence.userId);
+          if (peerPresence.lastLoginAt) {
+            setUsers((prev) =>
+              prev.map((u) =>
+                String(u.id) === peerId
+                  ? { ...u, lastLoginAt: peerPresence.lastLoginAt }
+                  : u,
+              ),
+            );
+            setSelected((cur) => {
+              if (!cur || cur.type !== "dm" || String(cur.id) !== peerId) return cur;
+              if (cur.peer?.lastLoginAt === peerPresence.lastLoginAt) return cur;
+              return {
+                ...cur,
+                peer: { ...(cur.peer || {}), lastLoginAt: peerPresence.lastLoginAt },
+              };
+            });
+          }
+        }
+
+        if (socketConnected) return;
 
         const events = Array.isArray(data.typing) ? data.typing : [];
         if (watchPeerId) {
@@ -2484,6 +2694,14 @@ useEffect(() => {
     const threadKey = selectedKey;
     const threadType = selectedType;
     const threadId = selectedId;
+    // DMs must use a real Mongo ObjectId — reserved paths like "important"
+    // or "settings" must never hit GET /messages/:userId.
+    if (
+      threadType === "dm" &&
+      !/^[a-f0-9]{24}$/i.test(String(threadId))
+    ) {
+      return undefined;
+    }
     const switching = loadedThreadKeyRef.current !== threadKey;
     loadedThreadKeyRef.current = threadKey;
 
@@ -2518,6 +2736,9 @@ useEffect(() => {
       .then((res) => {
         if (cancelled) return;
         const next = (res.data.data || []).map((raw) => decorateRef.current(raw));
+        getOfflineMessages(user.id, threadKey).then((queued) => {
+          if (!cancelled) setMessages([...next, ...queued.map(pendingMessageFromOutbox)]);
+        });
         setHasMoreMessages(Boolean(res.data.meta?.hasMore));
         oldestCreatedAtRef.current = next[0]?.createdAt || null;
         if (next.length) {
@@ -2533,12 +2754,13 @@ useEffect(() => {
         }
         setTimeout(() => scrollToBottomRef.current("auto"), 50);
       })
-      .catch((err) =>
+      .catch((err) => {
+        if (cancelled) return;
         showToastRef.current(
           err.response?.data?.error || "Failed to load messages",
           "error",
-        ),
-      )
+        );
+      })
       .finally(() => {
         if (!cancelled) setLoadingMessages(false);
       });
@@ -2985,13 +3207,55 @@ useEffect(() => {
     (conversation) => {
       if (!conversation || conversation.type === "group") return null;
       if (String(conversation.id) === String(user?.id)) return selfPeer;
-      return (
-        conversation.peer ||
-        users.find((u) => String(u.id) === String(conversation.id)) ||
-        null
-      );
+      const fromList = users.find((u) => String(u.id) === String(conversation.id));
+      const peer = conversation.peer;
+      // Prefer live users[] fields (lastLoginAt) over a stale selected.peer snapshot.
+      if (fromList && peer) return { ...peer, ...fromList };
+      return fromList || peer || null;
     },
     [user?.id, selfPeer, users],
+  );
+
+  const ensurePeerKeys = useCallback(
+    async (targetConversation) => {
+      if (!targetConversation || targetConversation.type === "group") return [];
+      let peer = resolveDmPeer(targetConversation);
+      let keys = (peer?.publicKeys || []).filter(Boolean);
+      if (keys.length > 0) return keys;
+
+      const peerId = targetConversation.id;
+      if (!peerId || String(peerId) === String(user?.id)) return [];
+
+      try {
+        const { data } = await client.get(`/users/${peerId}`);
+        const freshUser = data?.data;
+        if (freshUser) {
+          const freshKeys = (freshUser.publicKeys || []).filter(Boolean);
+          setUsers((prev) => {
+            const idx = prev.findIndex((u) => String(u.id) === String(peerId));
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = { ...copy[idx], ...freshUser };
+              return copy;
+            }
+            return [...prev, freshUser];
+          });
+          setSelected((cur) => {
+            if (!cur || cur.type !== "dm" || String(cur.id) !== String(peerId)) return cur;
+            return {
+              ...cur,
+              title: cur.title === "Chat" ? (getDisplayName(freshUser, i18n.language) || freshUser.username || "Chat") : cur.title,
+              peer: { ...(cur.peer || {}), ...freshUser },
+            };
+          });
+          return freshKeys;
+        }
+      } catch (err) {
+        console.warn("[ensurePeerKeys] failed to fetch public keys for peer", peerId, err);
+      }
+      return [];
+    },
+    [resolveDmPeer, user?.id, i18n.language],
   );
 
   const screenshotProtectionOn = useMemo(
@@ -3006,8 +3270,10 @@ useEffect(() => {
       }),
     [user?.id, selected, profileUserId, users, groups, resolveDmPeer],
   );
-  useScreenshotProtection(screenshotProtectionOn, {
+  // Only protect the open chat thread — Settings and other app overlays stay capturable.
+  useScreenshotProtection(screenshotProtectionOn && !showSettings, {
     scope: "chat",
+    targetSelector: ".chat-main",
     onAttempt: (reason) => {
       showToast(
         reason === "screenshot"
@@ -3027,6 +3293,7 @@ useEffect(() => {
     const activeGroups = searchResults ? searchResults.groups : groups;
     const muted = new Set(mutedKeys.map(String));
     const archived = new Set(archivedKeys.map(String));
+    const pinned = new Set(pinnedChatKeys.map(String));
 
     if (user?.id && selfPeer) {
       const key = conversationKeyForUser(user.id);
@@ -3051,6 +3318,7 @@ useEffect(() => {
         peer: selfPeer,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
+        pinned: pinned.has(String(key)),
         online: false,
         isSelfChat: true,
       });
@@ -3082,6 +3350,7 @@ useEffect(() => {
         peer: u,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
+        pinned: pinned.has(String(key)),
         online,
       });
     }
@@ -3112,6 +3381,7 @@ useEffect(() => {
         group: g,
         muted: muted.has(String(key)),
         archived: archived.has(String(key)),
+        pinned: pinned.has(String(key)),
         online: false,
       });
     }
@@ -3139,6 +3409,7 @@ useEffect(() => {
 
     items.sort((a, b) => {
       if (a.isSelfChat !== b.isSelfChat) return a.isSelfChat ? -1 : 1;
+      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
       if (a.unread !== b.unread) return a.unread ? -1 : 1;
       return String(b.sortAt).localeCompare(String(a.sortAt));
     });
@@ -3182,6 +3453,7 @@ useEffect(() => {
     hiddenChatIds,
     mutedKeys,
     archivedKeys,
+    pinnedChatKeys,
     onlineUserIds,
     searchResults,
     vaultUnlocked,
@@ -3298,6 +3570,7 @@ useEffect(() => {
     setMentionOpen(false);
     setPendingAnnouncement(false);
     setShowGroupSettings(false);
+    setShowCommandCenter(false);
     setProfileUserId(null);
     setPeerTyping(false);
     setGroupTypingUsers([]);
@@ -3312,6 +3585,9 @@ useEffect(() => {
     if (syncUrl) {
       const next = chatPathForSelection(c);
       if (location.pathname !== next) navigate(next);
+    }
+    if (c.type === "dm" && !c.isSelfChat && (!c.peer?.publicKeys?.length || c.title === "Chat")) {
+      ensurePeerKeys(c).catch(() => {});
     }
   }
 
@@ -3678,7 +3954,7 @@ useEffect(() => {
 
   async function sendGroupPayload(
     plaintext,
-    { kind, mentionedUserIds, tempId, displayText, replyToId, attachmentId, viewOnce } = {},
+    { kind, mentionedUserIds, tempId, displayText, replyToId, attachmentId, viewOnce, clientMessageId } = {},
   ) {
     if (!selected || selected.type !== "group") {
       throw new Error("No group selected");
@@ -3691,6 +3967,7 @@ useEffect(() => {
     }
     const isPublic = group.visibility === "public";
     const payload = { kind: kind || "text" };
+    if (clientMessageId) payload.clientMessageId = clientMessageId;
     if (isPublic) {
       payload.content = plaintext;
     } else {
@@ -3704,10 +3981,21 @@ useEffect(() => {
     if (disappearSeconds > 0) payload.expiresInSeconds = disappearSeconds;
     const forwardPolicy = buildForwardPolicy();
     if (forwardPolicy) payload.forwardPolicy = forwardPolicy;
+    if (clientMessageId) {
+      await saveOfflineMessage(user.id, {
+        id: clientMessageId,
+        type: "group",
+        conversationId: selected.id,
+        conversationKey: selected.key,
+        displayText: displayText ?? plaintext,
+        payload,
+      });
+    }
     const { data } = await client.post(
       `/groups/${selected.id}/messages`,
       payload,
     );
+    if (clientMessageId) await removeOfflineMessage(user.id, clientMessageId);
     recordActivityFromMessage(data.data);
     setMessages((prev) =>
       mergeConfirmedMessage(prev, {
@@ -3718,6 +4006,52 @@ useEffect(() => {
     );
     return data.data;
   }
+
+  async function retryOfflineMessage(entry) {
+    if (!entry?.id || retryingOutboxRef.current.has(entry.id)) return;
+    retryingOutboxRef.current.add(entry.id);
+    try {
+      const endpoint = entry.type === "group"
+        ? `/groups/${entry.conversationId}/messages`
+        : "/messages";
+      const { data } = await client.post(endpoint, entry.payload);
+      await removeOfflineMessage(user.id, entry.id);
+      recordActivityFromMessage(data.data);
+      setMessages((prev) =>
+        mergeConfirmedMessage(prev, {
+          tempId: `outbox-${entry.id}`,
+          serverRaw: data.data,
+          displayText: entry.displayText,
+        }),
+      );
+      playSendSound();
+    } catch {
+      // Keep the encrypted request in the outbox for the next reconnect.
+    } finally {
+      retryingOutboxRef.current.delete(entry.id);
+    }
+  }
+
+  function isRetryableSendError(err) {
+    if (err?.code === "OUTBOX_UNAVAILABLE") return false;
+    const status = err?.response?.status;
+    return !status || status === 408 || status === 429 || status >= 500;
+  }
+
+  async function retryOfflineMessages(conversationKey) {
+    if (!navigator.onLine || !user?.id) return;
+    const entries = conversationKey
+      ? await getOfflineMessages(user.id, conversationKey)
+      : await getAllOfflineMessages(user.id);
+    await Promise.all(entries.map((entry) => retryOfflineMessage(entry)));
+  }
+
+  useEffect(() => {
+    const retry = () => retryOfflineMessages();
+    window.addEventListener("online", retry);
+    retry();
+    return () => window.removeEventListener("online", retry);
+  }, [selected?.key, user?.id]);
 
   async function saveEncryptedAINote(text) {
     if (!selected || !text?.trim()) return;
@@ -4210,6 +4544,11 @@ useEffect(() => {
         "error",
       );
       throw err;
+    } finally {
+      // Always clear busy — otherwise the UI stays on "generating…" and
+      // further sends show "QuantumAI is already responding".
+      setAiBusy(false);
+      aiAbortRef.current = null;
     }
   }
 
@@ -4237,7 +4576,7 @@ useEffect(() => {
           prompt.replace(/@QuantumAI\b/gi, "").trim() ||
           "Help with this conversation.",
         context,
-        link: { groupId: selected.id },
+        link: { groupId: selected.id, quantumChatPeerId: user.id },
         ephemeral: true,
         signal: controller.signal,
         onDone: (payload) => {
@@ -4342,9 +4681,11 @@ useEffect(() => {
             ),
           );
         } else {
-          const peer = resolveDmPeer(selected);
           const myKey = pickRandom(getCurrentKeySet(user.id));
-          const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+          let recipientKeys = (resolveDmPeer(selected)?.publicKeys || []).filter(Boolean);
+          if (recipientKeys.length === 0 && selected) {
+            recipientKeys = await ensurePeerKeys(selected);
+          }
           if (!myKey?.publicKey || recipientKeys.length === 0) {
             showToast("Missing encryption keys for this conversation", "error");
             return;
@@ -4411,7 +4752,8 @@ useEffect(() => {
           }
         }
         const kind = asAnnouncement ? "announcement" : "text";
-        const tempId = `tmp-${crypto.randomUUID()}`;
+        const clientMessageId = crypto.randomUUID();
+        const tempId = `outbox-${clientMessageId}`;
         const replySnapshot = replyTo;
         const draftSnapshot = draft;
 
@@ -4451,6 +4793,7 @@ useEffect(() => {
             kind,
             mentionedUserIds,
             tempId,
+            clientMessageId,
             displayText: plaintext,
             replyToId: replySnapshot
               ? replySnapshot.id || replySnapshot._id
@@ -4460,27 +4803,37 @@ useEffect(() => {
             await invokeGroupQuantumAI(bodyText, group);
           }
         } catch (err) {
-          setMessages((prev) =>
-            prev.filter((m) => String(m.id || m._id) !== tempId),
-          );
-          setDraft(draftSnapshot);
-          setReplyTo(replySnapshot);
+          if (isRetryableSendError(err)) {
+            setMessages((prev) => prev.map((m) =>
+              String(m.id || m._id) === tempId ? { ...m, _status: "waiting" } : m,
+            ));
+          } else {
+            await removeOfflineMessage(user.id, clientMessageId);
+            setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== tempId));
+            setDraft(draftSnapshot);
+            setReplyTo(replySnapshot);
+          }
           throw err;
         }
       } else {
-        const peer = resolveDmPeer(selected);
         const myKey = pickRandom(getCurrentKeySet(user.id));
-        const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+        let recipientKeys = (resolveDmPeer(selected)?.publicKeys || []).filter(Boolean);
+        if (recipientKeys.length === 0 && selected) {
+          recipientKeys = await ensurePeerKeys(selected);
+        }
         if (!myKey?.publicKey || recipientKeys.length === 0) {
           showToast("Missing encryption keys for this conversation", "error");
           return;
         }
         const draftSnapshot = draft;
         const replySnapshot = replyTo;
-        const tempId = `tmp-${crypto.randomUUID()}`;
+        const clientMessageId = crypto.randomUUID();
+        const tempId = `outbox-${clientMessageId}`;
         const plaintext = draft;
 
         setDraft("");
+        setCapsuleUnlocksAt("");
+        setShowCapsulePicker(false);
         setReplyTo(null);
         setMentionOpen(false);
         if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -4513,11 +4866,25 @@ useEffect(() => {
           const forRecipient = sealMessage(plaintext, pickRandom(recipientKeys));
           const forSender = sealMessage(plaintext, myKey.publicKey);
           const body = { to: selected.id, forRecipient, forSender };
+          body.clientMessageId = clientMessageId;
           if (replySnapshot) body.replyTo = replySnapshot.id || replySnapshot._id;
           if (disappearSeconds > 0) body.expiresInSeconds = disappearSeconds;
+          if (capsuleUnlocksAt) {
+            body.timeCapsule = true;
+            body.unlocksAt = new Date(capsuleUnlocksAt).toISOString();
+          }
           const forwardPolicy = buildForwardPolicy();
           if (forwardPolicy) body.forwardPolicy = forwardPolicy;
+          await saveOfflineMessage(user.id, {
+            id: clientMessageId,
+            type: "dm",
+            conversationId: selected.id,
+            conversationKey: selected.key,
+            displayText: plaintext,
+            payload: body,
+          });
           const { data } = await client.post("/messages", body);
+          await removeOfflineMessage(user.id, clientMessageId);
           recordActivityFromMessage(data.data);
           setMessages((prev) =>
             mergeConfirmedMessage(prev, {
@@ -4527,11 +4894,16 @@ useEffect(() => {
             }),
           );
         } catch (err) {
-          setMessages((prev) =>
-            prev.filter((m) => String(m.id || m._id) !== tempId),
-          );
-          setDraft(draftSnapshot);
-          setReplyTo(replySnapshot);
+          if (isRetryableSendError(err)) {
+            setMessages((prev) => prev.map((m) =>
+              String(m.id || m._id) === tempId ? { ...m, _status: "waiting" } : m,
+            ));
+          } else {
+            await removeOfflineMessage(user.id, clientMessageId);
+            setMessages((prev) => prev.filter((m) => String(m.id || m._id) !== tempId));
+            setDraft(draftSnapshot);
+            setReplyTo(replySnapshot);
+          }
           throw err;
         }
       }
@@ -4632,7 +5004,7 @@ useEffect(() => {
     );
     return undefined;
   }
-  async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false } = {}) {
+  async function sendAttachmentFile(file, { plainBytes, quiet, viewOnce = false, offlineId, skipOutbox = false, offlineEntry } = {}) {
     if (
       !file ||
       !selected ||
@@ -4648,18 +5020,45 @@ useEffect(() => {
       return;
     }
 
-    const uploadId = crypto.randomUUID();
+    const uploadId = offlineId || crypto.randomUUID();
     const controller = new AbortController();
     setUploads((prev) => [
       ...prev,
       { id: uploadId, name: file.name, progress: 0, controller },
     ]);
+    const pendingMessageId = `outbox-${uploadId}`;
+    setMessages((prev) => {
+      if (prev.some((message) => String(message.id || message._id) === pendingMessageId)) return prev;
+      return [...prev, {
+        id: pendingMessageId,
+        _id: pendingMessageId,
+        from: user.id,
+        ...(selected.type === "group" ? { group: selected.id } : { to: selected.id }),
+        text: file.name || "Attachment",
+        createdAt: new Date().toISOString(),
+        _status: "sending",
+        _pending: true,
+        _mediaPending: true,
+      }];
+    });
 
     try {
       if (selected.type === "group") {
         const fileBytes =
           plainBytes || new Uint8Array(await file.arrayBuffer());
         const sealed = await secretboxSealAsync(fileBytes);
+        if (!skipOutbox) await saveOfflineMedia(user.id, {
+          id: uploadId,
+          type: "group",
+          conversationId: selected.id,
+          conversationKey: selected.key,
+          filename: file.name,
+          mimetype: file.type || "application/octet-stream",
+          viewOnce,
+          sealedKey: sealed.key,
+          sealedNonce: sealed.nonce,
+          sourceBytes: fileBytes,
+        });
         const mimeType = file.type || "application/octet-stream";
         const cipherBlob = new Blob([sealed.cipherBytes], { type: mimeType });
         const useChunked = sealed.cipherBytes.byteLength > CHUNK_SIZE;
@@ -4668,6 +5067,7 @@ useEffect(() => {
           "/attachments/init",
           {
             groupId: selected.id,
+            clientUploadId: uploadId,
             secretboxNonce: sealed.nonce,
             filename: file.name,
             mimetype: mimeType,
@@ -4675,7 +5075,11 @@ useEffect(() => {
           },
           { signal: controller.signal },
         );
-        const { pendingUploadId } = initRes.data.data;
+        const initData = initRes.data.data;
+        const pendingUploadId = initData.pendingUploadId;
+        let attachment = initData.finalizedAttachmentId
+          ? { id: initData.finalizedAttachmentId, filename: file.name, mimetype: mimeType, size: file.size }
+          : null;
 
         const onRecipientProgress = (event) => {
           if (!event.total) return;
@@ -4688,7 +5092,7 @@ useEffect(() => {
           );
         };
 
-        const recipientDirectUploadId = useChunked
+        const recipientDirectUploadId = attachment ? undefined : (useChunked
           ? await putCiphertextChunked(sealed.cipherBytes, {
               pendingUploadId,
               slot: "recipient",
@@ -4700,18 +5104,20 @@ useEffect(() => {
               slot: "recipient",
               signal: controller.signal,
               onProgress: onRecipientProgress,
-            });
-
-        const finalizeRes = await client.post(
-          "/attachments/finalize",
-          { pendingUploadId, recipientDirectUploadId },
-          { signal: controller.signal },
-        );
-        const attachment = finalizeRes.data.data;
+            }));
+        if (!attachment) {
+          const finalizeRes = await client.post(
+            "/attachments/finalize",
+            { pendingUploadId: initData.pendingUploadId, clientUploadId: uploadId, recipientDirectUploadId },
+            { signal: controller.signal },
+          );
+          attachment = finalizeRes.data.data;
+          await updateOfflineMedia(user.id, uploadId, { finalizedAttachmentId: attachment.id });
+        }
         const plaintext = encodeGroupFile({
           attachmentId: attachment.id,
-          key: sealed.key,
-          nonce: sealed.nonce,
+          key: offlineEntry?.sealedKey || sealed.key,
+          nonce: offlineEntry?.sealedNonce || sealed.nonce,
           filename: attachment.filename || file.name,
           mimetype:
             attachment.mimetype || file.type || "application/octet-stream",
@@ -4721,23 +5127,38 @@ useEffect(() => {
         await sendGroupPayload(plaintext, {
           kind: "file",
           attachmentId: attachment.id,
+          clientMessageId: uploadId,
+          tempId: pendingMessageId,
           ...(wantViewOnce ? { viewOnce: true } : {}),
         });
+        await removeOfflineMedia(user.id, uploadId);
         playSendSound();
         if (!quiet) showToast("File sent successfully", "success", 3000);
         setTimeout(() => scrollToBottom("smooth"), 50);
         return;
       }
 
-      const peer = resolveDmPeer(selected);
       const myKey = pickRandom(getCurrentKeySet(user.id));
-      const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+      let recipientKeys = (resolveDmPeer(selected)?.publicKeys || []).filter(Boolean);
+      if (recipientKeys.length === 0 && selected) {
+        recipientKeys = await ensurePeerKeys(selected);
+      }
       if (!myKey?.publicKey || recipientKeys.length === 0) {
         showToast("Missing encryption keys for this conversation", "error");
         return;
       }
       const recipientPublicKey = pickRandom(recipientKeys);
       const fileBytes = plainBytes || new Uint8Array(await file.arrayBuffer());
+      if (!skipOutbox) await saveOfflineMedia(user.id, {
+        id: uploadId,
+        type: "dm",
+        conversationId: selected.id,
+        conversationKey: selected.key,
+        filename: file.name,
+        mimetype: file.type || "application/octet-stream",
+        viewOnce,
+        sourceBytes: fileBytes,
+      });
       // Safe to run concurrently: each call only transfers its OWN output
       // buffer back (see cryptoWorker.js) — fileBytes itself is never
       // transferred, so there's nothing shared to race on.
@@ -4758,6 +5179,7 @@ useEffect(() => {
         "/attachments/init",
         {
           recipientId: selected.id,
+          clientUploadId: uploadId,
           filename: file.name,
           mimetype: mimeType,
           size: recipientBlob.size,
@@ -4770,7 +5192,10 @@ useEffect(() => {
         },
         { signal: controller.signal },
       );
-      const { pendingUploadId, sender } = initRes.data.data;
+      const initData = initRes.data.data;
+      const existingAttachmentId = initData.finalizedAttachmentId;
+      const pendingUploadId = initData.pendingUploadId;
+      const sender = initData.sender;
 
       let recipientLoaded = 0;
       let senderLoaded = 0;
@@ -4785,7 +5210,7 @@ useEffect(() => {
           prev.map((u) => (u.id === uploadId ? { ...u, progress } : u)),
         );
       };
-      const recipientUploadPromise = useChunked
+      const recipientUploadPromise = existingAttachmentId ? Promise.resolve(undefined) : (useChunked
         ? putCiphertextChunked(forRecipientFile.cipherBytes, {
             pendingUploadId,
             slot: "recipient",
@@ -4803,9 +5228,9 @@ useEffect(() => {
               recipientLoaded = event.loaded || 0;
               reportProgress();
             },
-          });
+          }));
 
-      const senderUploadPromise = sender
+      const senderUploadPromise = existingAttachmentId ? Promise.resolve(undefined) : (sender
         ? useChunked
           ? putCiphertextChunked(forSenderFile.cipherBytes, {
               pendingUploadId,
@@ -4825,7 +5250,7 @@ useEffect(() => {
                 reportProgress();
               },
             })
-        : Promise.resolve(undefined);
+        : Promise.resolve(undefined));
 
       // Recipient and sender ciphertext are independent objects server-side
       // — concurrent upload roughly halves wall-clock time versus two full
@@ -4835,17 +5260,22 @@ useEffect(() => {
         senderUploadPromise,
       ]);
 
-      const finalizeRes = await client.post(
-        "/attachments/finalize",
-        { pendingUploadId, recipientDirectUploadId, senderDirectUploadId },
-        { signal: controller.signal },
-      );
-      const attachmentId = finalizeRes.data.data.id;
+      let attachmentId = existingAttachmentId;
+      if (!attachmentId) {
+        const finalizeRes = await client.post(
+          "/attachments/finalize",
+          { pendingUploadId, clientUploadId: uploadId, recipientDirectUploadId, senderDirectUploadId },
+          { signal: controller.signal },
+        );
+        attachmentId = finalizeRes.data.data.id;
+        await updateOfflineMedia(user.id, uploadId, { finalizedAttachmentId: attachmentId });
+      }
 
       const forRecipient = sealMessage("", recipientPublicKey);
       const forSender = sealMessage("", myKey.publicKey);
       const msgBody = {
         to: selected.id,
+        clientMessageId: uploadId,
         forRecipient,
         forSender,
         attachmentId,
@@ -4856,12 +5286,14 @@ useEffect(() => {
       const forwardPolicy = buildForwardPolicy();
       if (forwardPolicy && !wantViewOnce) msgBody.forwardPolicy = forwardPolicy;
       const { data } = await client.post("/messages", msgBody);
+      await removeOfflineMedia(user.id, uploadId);
       recordActivityFromMessage(data.data);
-      setMessages((prev) => {
-        const id = String(data.data.id || data.data._id);
-        if (prev.some((m) => String(m.id || m._id) === id)) return prev;
-        return [...prev, decorate(data.data)];
-      });
+      setMessages((prev) => mergeConfirmedMessage(prev, {
+        tempId: pendingMessageId,
+        serverRaw: data.data,
+        displayText: file.name,
+      }));
+      void markMessageImportantIfNeeded(data.data);
       playSendSound();
       if (!quiet) showToast("File sent successfully", "success", 3000);
       setTimeout(() => scrollToBottom("smooth"), 50);
@@ -4876,10 +5308,46 @@ useEffect(() => {
           "error",
         );
       }
+      if (isRetryableSendError(err)) {
+        setMessages((prev) => prev.map((message) =>
+          String(message.id || message._id) === pendingMessageId
+            ? { ...message, _status: "waiting" }
+            : message,
+        ));
+      } else {
+        setMessages((prev) => prev.filter((message) => String(message.id || message._id) !== pendingMessageId));
+      }
     } finally {
       setUploads((prev) => prev.filter((u) => u.id !== uploadId));
     }
   }
+
+  async function retryOfflineMediaForSelection() {
+    if (!navigator.onLine || !user?.id || !selected?.key) return;
+    const entries = (await getOfflineMedia(user.id)).filter(
+      (entry) => entry.conversationKey === selected.key,
+    );
+    for (const entry of entries) {
+      const file = new File([entry.sourceBytes], entry.filename || 'attachment', {
+        type: entry.mimetype || 'application/octet-stream',
+      });
+      await sendAttachmentFile(file, {
+        plainBytes: entry.sourceBytes,
+        viewOnce: entry.viewOnce === true,
+        offlineId: entry.id,
+        skipOutbox: true,
+        offlineEntry: entry,
+        quiet: true,
+      });
+    }
+  }
+
+  useEffect(() => {
+    const retry = () => retryOfflineMediaForSelection().catch(() => {});
+    window.addEventListener('online', retry);
+    retry();
+    return () => window.removeEventListener('online', retry);
+  }, [selected?.key, user?.id]);
   async function sendAttachmentFiles(filesOrFile, { viewOnce = false } = {}) {
     const list = Array.isArray(filesOrFile)
       ? filesOrFile
@@ -5345,6 +5813,27 @@ useEffect(() => {
     showToast("Message removed for you", "success");
   }
 
+  const handleTranscriptStateChange = useCallback((messageId, participantTranscript) => {
+    const id = String(messageId);
+    setMessages((prev) => prev.map((msg) => {
+      const candidateId = String(msg.id || msg._id || '');
+      if (!candidateId || candidateId !== id) return msg;
+      const current = msg.transcription || {};
+      const entries = Array.isArray(current.entries) ? current.entries : [];
+      const userId = String(participantTranscript.user || user.id);
+      const nextEntries = entries.filter((entry) => String(entry.user) !== userId);
+      nextEntries.push({ ...participantTranscript, user: userId });
+      return {
+        ...msg,
+        transcription: {
+          ...current,
+          entries: nextEntries,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    }));
+  }, [setMessages, user.id]);
+
   async function handleBurnViewOnce(message) {
     const messageId = message?.id || message?._id;
     if (!messageId) return;
@@ -5376,6 +5865,57 @@ useEffect(() => {
     );
     setStarredIds(nextIds);
     setExtrasTick((n) => n + 1);
+  }
+
+  async function handleImportantMessage(messageOrId) {
+    const messageId = String(messageOrId?.id || messageOrId?._id || messageOrId || '');
+    if (!messageId) return;
+    const message = typeof messageOrId === 'object'
+      ? messageOrId
+      : messages.find((candidate) => String(candidate.id || candidate._id) === messageId);
+    const previous = importantEntries;
+    const existing = previous.some((entry) => String(entry.id || entry._id) === messageId);
+
+    if (existing) {
+      const wasAutomatic = Boolean(getAutomaticImportantSource(message || previous.find((entry) => String(entry.id || entry._id) === messageId) || {}));
+      if (wasAutomatic) {
+        rememberAutoImportantRemoval(user.id, messageId);
+      }
+      setImportantEntries((current) => current.filter((entry) => String(entry.id || entry._id) !== messageId));
+      try {
+        await client.delete(`/messages/${messageId}/important`);
+        showToast('Removed from Important messages', 'success');
+      } catch (err) {
+        setImportantEntries(previous);
+        showToast(err.response?.data?.error || "Couldn't remove message. Try again.", 'error');
+      }
+      return;
+    }
+
+    clearAutoImportantRemoval(user.id, messageId);
+    const rawConversation = selected;
+    const optimistic = {
+      ...message,
+      id: messageId,
+      type: rawConversation?.type || (message?.group ? 'group' : 'dm'),
+      conversationId: rawConversation?.id || (message?.group ? message.group : message?.from),
+      conversationKey: rawConversation?.key || null,
+      title: rawConversation?.title || 'Chat',
+      isImportant: true,
+      important: true,
+      importantAt: new Date().toISOString(),
+      hasAttachment: Boolean(message?.attachment),
+      attachmentFilename: message?.attachment?.filename || null,
+      importantSource: getAutomaticImportantSource(message || {}),
+    };
+    setImportantEntries((current) => [optimistic, ...current]);
+    try {
+      await client.post(`/messages/${messageId}/important`);
+      showToast('Message saved to Important messages', 'success');
+    } catch (err) {
+      setImportantEntries(previous);
+      showToast(err.response?.data?.error || "Couldn't save message. Try again.", 'error');
+    }
   }
 
   async function handlePinMessage(messageId) {
@@ -5489,9 +6029,11 @@ useEffect(() => {
         }
       }
 
-      const peer = resolveDmPeer(target);
       const myKey = pickRandom(getCurrentKeySet(user.id));
-      const recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+      let recipientKeys = (resolveDmPeer(target)?.publicKeys || []).filter(Boolean);
+      if (recipientKeys.length === 0 && target) {
+        recipientKeys = await ensurePeerKeys(target);
+      }
       if (!myKey?.publicKey || recipientKeys.length === 0) {
         showToast("Missing encryption keys for this conversation", "error");
         return;
@@ -5610,8 +6152,10 @@ useEffect(() => {
         );
         recipientKeys = (member?.publicKeys || []).filter(Boolean);
       } else {
-        const peer = resolveDmPeer(selected);
-        recipientKeys = (peer?.publicKeys || []).filter(Boolean);
+        recipientKeys = (resolveDmPeer(selected)?.publicKeys || []).filter(Boolean);
+        if (recipientKeys.length === 0 && selected) {
+          recipientKeys = await ensurePeerKeys(selected);
+        }
       }
       if (!myKey?.publicKey || recipientKeys.length === 0) {
         showToast("Missing encryption keys for this conversation", "error");
@@ -5744,14 +6288,13 @@ useEffect(() => {
     if (themeCatalog && chatTheme.bubbleColorId && chatTheme.bubbleColorId !== 'default') {
       const bubble = themeCatalog.bubbleColors.find((b) => b.id === chatTheme.bubbleColorId);
       if (bubble) {
-        vars['--bubble-mine'] = bubble.mine;
-        // `fg` is optional on older catalog responses — falls back to the
-        // app theme's default (white in dark/eyecare, dark text in light)
-        // via the CSS `var(--bubble-mine-fg, ...)` fallback if omitted.
-        if (bubble.fg) {
-          vars['--bubble-mine-fg'] = bubble.fg;
-          vars['--bubble-mine-time'] = `color-mix(in srgb, ${bubble.fg} 78%, transparent)`;
-        }
+        // Must match `.message-bubble.mine` which reads `--bubble-mine-bg`
+        // (not `--bubble-mine`). Setting only fg left the cream dark-theme
+        // default background with white text — unreadable.
+        vars['--bubble-mine-bg'] = bubble.mine;
+        const fg = bubble.fg || '#ffffff';
+        vars['--bubble-mine-fg'] = fg;
+        vars['--bubble-mine-time'] = `color-mix(in srgb, ${fg} 78%, transparent)`;
       }
     }
     if (chatTheme.wallpaperId === 'custom' && customWallpaperUrl) {
@@ -5801,7 +6344,7 @@ useEffect(() => {
     // Server already filtered presence by the peer's onlineStatus privacy.
     const presenceLabel = onlineUserIds.has(String(selected.id))
       ? "online"
-      : formatLastSeen(peer?.lastLoginAt);
+      : formatLastSeenLabel(peer?.lastLoginAt);
     const customStatus = (peer?.statusText || "").trim();
     if (customStatus) {
       return presenceLabel ? `${presenceLabel} · ${customStatus}` : customStatus;
@@ -5962,6 +6505,7 @@ useEffect(() => {
       applyConversationSelection(null);
     }
     setShowGroupSettings(false);
+    setShowCommandCenter(false);
     setProfileUserId(null);
   }
 
@@ -5969,11 +6513,9 @@ useEffect(() => {
     if (!selected || selected.type !== "dm") return false;
     if (selected.isSelfChat || String(selected.id) === String(user.id))
       return false;
-    const peer = resolveDmPeer(selected);
-    if (onlineUserIds.has(String(selected.id))) return true;
-    // Fallback only when socket presence hasn't arrived yet.
-    return isRecentlyActive(peer?.lastLoginAt);
-  }, [selected, resolveDmPeer, onlineUserIds, user.id]);
+    // Trust live presence only — lastLoginAt must not imply online.
+    return onlineUserIds.has(String(selected.id));
+  }, [selected, onlineUserIds, user.id]);
 
   const visibleMessages = useMemo(() => {
     const deleted = new Set(deletedForMeIds.map(String));
@@ -6091,6 +6633,10 @@ useEffect(() => {
         }}
         onArchive={(c) => {
           setArchivedKeys(toggleArchiveChat(user.id, c.key));
+        }}
+        onPin={(c) => {
+          setPinnedChatKeys(togglePinChat(user.id, c.key));
+          showToast(c.pinned ? "Chat unpinned" : "Chat pinned", "info");
         }}
         onToggleVault={(c) => handleToggleVault(c.id)}
         loadingUsers={loadingUsers}
@@ -6511,14 +7057,24 @@ useEffect(() => {
                   <MessageSquare size={18} strokeWidth={2} aria-hidden="true" />
                 </button>
                 {selected?.type === "group" && (
-                  <button
-                    className="icon-btn chat-header-action-secondary"
-                    onClick={() => setShowGroupSettings(true)}
-                    title="Group settings"
-                    aria-label="Group settings"
-                  >
-                    <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
-                  </button>
+                  <>
+                    <button
+                      className="icon-btn chat-header-action-secondary"
+                      onClick={() => setShowCommandCenter(true)}
+                      title="Command Center"
+                      aria-label="Command Center"
+                    >
+                      <LayoutDashboard size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="icon-btn chat-header-action-secondary"
+                      onClick={() => setShowGroupSettings(true)}
+                      title="Group settings"
+                      aria-label="Group settings"
+                    >
+                      <Settings2 size={18} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
                 )}
                 {selected && (
                   <button
@@ -6551,6 +7107,11 @@ useEffect(() => {
                     onOpenGroupSettings={
                       selected.type === "group"
                         ? () => setShowGroupSettings(true)
+                        : undefined
+                    }
+                    onOpenCommandCenter={
+                      selected.type === "group"
+                        ? () => setShowCommandCenter(true)
                         : undefined
                     }
                     onToggleVault={
@@ -6742,6 +7303,7 @@ useEffect(() => {
                               resolveSecretKey={resolveMySecretKey}
                               grouped={isGrouped}
                               starred={starredIds.map(String).includes(mid)}
+                              important={importantEntries.some((entry) => String(entry.id || entry._id) === mid)}
                               pinned={pinnedIds.map(String).includes(mid)}
                               showReadReceipts={
                                 user.privacy?.readReceipts !== false &&
@@ -6781,10 +7343,12 @@ useEffect(() => {
                               onCopy={handleCopyMessage}
                               onForward={setForwardMessage}
                               onStar={handleStarMessage}
+                              onImportant={handleImportantMessage}
                               onPin={handlePinMessage}
                               onVotePoll={
                                 isGroupChat ? handleVotePoll : undefined
                               }
+                              onTranscriptStateChange={handleTranscriptStateChange}
                               onJumpToReply={handleJumpToReply}
                               onImagePreview={handleImagePreview}
                               onImageReady={handleImageReady}
@@ -7148,28 +7712,36 @@ useEffect(() => {
         )}
       </main>
       {themeModalOpen && selected && (selected.type === "dm" || selected.type === "group") && (
-  <ChatThemeModal
-    peerId={selected.type === "dm" ? selected.id : undefined}
-    groupId={selected.type === "group" ? selected.id : undefined}
-    theme={chatTheme}
-    catalog={themeCatalog}
-    onApplied={(updated) => setChatTheme(updated)}
-    onClose={() => setThemeModalOpen(false)}
-  />
-)}
+        <LazyChunkErrorBoundary onClose={() => setThemeModalOpen(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <ChatThemeModal
+              peerId={selected.type === "dm" ? selected.id : undefined}
+              groupId={selected.type === "group" ? selected.id : undefined}
+              theme={chatTheme}
+              catalog={themeCatalog}
+              onApplied={(updated) => setChatTheme(updated)}
+              onClose={() => setThemeModalOpen(false)}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
       {aiPanelOpen && (
-        <AIAssistantPanel
-          conversation={selected}
-          messages={messages}
-          onClose={() => setAiPanelOpen(false)}
-          onInsertDraft={(text) => {
-            setDraft(text);
-            setAiPanelOpen(false);
-            textareaRef.current?.focus();
-          }}
-          onSaveEncryptedNote={saveEncryptedAINote}
-        />
+        <LazyChunkErrorBoundary onClose={() => setAiPanelOpen(false)}>
+          <Suspense fallback={<PanelLoadingFallback />}>
+            <AIAssistantPanel
+              conversation={selected}
+              messages={messages}
+              onClose={() => setAiPanelOpen(false)}
+              onInsertDraft={(text) => {
+                setDraft(text);
+                setAiPanelOpen(false);
+                textareaRef.current?.focus();
+              }}
+              onSaveEncryptedNote={saveEncryptedAINote}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
       <ConfirmDialog
@@ -7237,30 +7809,36 @@ useEffect(() => {
         onOpenAddParticipant={() => setShowAddParticipantModal(true)}
       />
 
-      <MeetingOverlay
-        meeting={meetingCall.meeting}
-        participants={meetingCall.participants}
-        localStream={meetingCall.localStream}
-        muted={meetingCall.muted}
-        cameraOff={meetingCall.cameraOff}
-        resolveParticipantName={(peerId) =>
-          users.find((u) => String(u.id) === String(peerId))?.displayName ||
-          users.find((u) => String(u.id) === String(peerId))?.username
-        }
-        onJoin={() =>
-          meetingCall
-            .joinMeeting()
-            .catch(() =>
-              showToast("Could not access microphone/camera", "error"),
-            )
-        }
-        onDecline={meetingCall.declineMeeting}
-        onLeave={meetingCall.leaveMeeting}
-        onEndForAll={meetingCall.endMeetingForAll}
-        onToggleMute={meetingCall.toggleMute}
-        onToggleCamera={meetingCall.toggleCamera}
-        onOpenAddParticipant={() => setShowAddParticipantModal(true)}
-      />
+      {Boolean(meetingCall.meeting) && (
+        <LazyChunkErrorBoundary onClose={meetingCall.leaveMeeting}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <MeetingOverlay
+              meeting={meetingCall.meeting}
+              participants={meetingCall.participants}
+              localStream={meetingCall.localStream}
+              muted={meetingCall.muted}
+              cameraOff={meetingCall.cameraOff}
+              resolveParticipantName={(peerId) =>
+                users.find((u) => String(u.id) === String(peerId))?.displayName ||
+                users.find((u) => String(u.id) === String(peerId))?.username
+              }
+              onJoin={() =>
+                meetingCall
+                  .joinMeeting()
+                  .catch(() =>
+                    showToast("Could not access microphone/camera", "error"),
+                  )
+              }
+              onDecline={meetingCall.declineMeeting}
+              onLeave={meetingCall.leaveMeeting}
+              onEndForAll={meetingCall.endMeetingForAll}
+              onToggleMute={meetingCall.toggleMute}
+              onToggleCamera={meetingCall.toggleCamera}
+              onOpenAddParticipant={() => setShowAddParticipantModal(true)}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
       {showAddParticipantModal && (
         <AddParticipantModal
@@ -7297,136 +7875,177 @@ useEffect(() => {
       )}
 
       {showCreateGroup && (
-        <CreateGroupModal
-          users={users}
-          onClose={() => setShowCreateGroup(false)}
-          onCreate={handleCreateGroup}
-        />
+        <LazyChunkErrorBoundary onClose={() => setShowCreateGroup(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <CreateGroupModal
+              users={users}
+              onClose={() => setShowCreateGroup(false)}
+              onCreate={handleCreateGroup}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
       {showGroupSettings && activeGroup && (
-  <GroupSettingsModal
-    group={activeGroup}
-    currentUserId={user.id}
-    users={users}
-    onClose={() => setShowGroupSettings(false)}
-    onUpdated={mergeUpdatedGroup}
-    onLeftOrDeleted={handleLeftOrDeletedGroup}
-    onOpenChatTheme={() => {
-      setShowGroupSettings(false);
-      setThemeModalOpen(true);
-    }}
-  />
-)}
+        <LazyChunkErrorBoundary onClose={() => setShowGroupSettings(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <GroupSettingsModal
+              group={activeGroup}
+              currentUserId={user.id}
+              users={users}
+              onClose={() => setShowGroupSettings(false)}
+              onUpdated={mergeUpdatedGroup}
+              onLeftOrDeleted={handleLeftOrDeletedGroup}
+              onOpenChatTheme={() => {
+                setShowGroupSettings(false);
+                setThemeModalOpen(true);
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
+      {showCommandCenter && activeGroup && (
+        <LazyChunkErrorBoundary onClose={() => setShowCommandCenter(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <GroupCommandCenter
+              group={activeGroup}
+              messages={messages}
+              currentUserId={user.id}
+              onClose={() => setShowCommandCenter(false)}
+              onUpdated={mergeUpdatedGroup}
+              onJumpToMessage={(messageId) => setPendingJumpMessageId(String(messageId))}
+              onOpenGroupSettings={() => {
+                setShowCommandCenter(false);
+                setShowGroupSettings(true);
+              }}
+              onAskAiSummary={() => {
+                setDraft(
+                  "@QuantumAI Please summarize this group: key announcements, open tasks, upcoming events, and recent decisions.",
+                );
+                setShowCommandCenter(false);
+                showToast("Review the draft, then send to ask QuantumAI", "info");
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
       {profileUserId && (
-        <UserProfileModal
-          userId={profileUserId}
-          seed={
-            (selected?.type === "dm" &&
-              String(selected.id) === String(profileUserId) &&
-              selected.peer) ||
-            users.find((u) => String(u.id) === String(profileUserId)) ||
-            null
-          }
-          online={onlineUserIds.has(String(profileUserId))}
-          muted={isChatMuted(user.id, conversationKeyForUser(profileUserId))}
-          archived={archivedKeys
-            .map(String)
-            .includes(String(conversationKeyForUser(profileUserId)))}
-          isFriend={isFriendWith(profileUserId)}
-          onRemoveFriend={async (peer) => {
-            try {
-              await client.delete(`/users/friends/${peer.id}`);
-              try {
-                const { data } = await client.get("/users/me");
-                if (data?.data) updateSessionUser(data.data);
-              } catch {
-                // non-fatal
+        <LazyChunkErrorBoundary onClose={() => setProfileUserId(null)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <UserProfileModal
+              userId={profileUserId}
+              seed={
+                (selected?.type === "dm" &&
+                  String(selected.id) === String(profileUserId) &&
+                  selected.peer) ||
+                users.find((u) => String(u.id) === String(profileUserId)) ||
+                null
               }
-              showToast("Friend removed", "success");
-              setProfileUserId(null);
-              loadDirectory();
-              loadMyFriends();
-              loadFriendDiscover(search);
-            } catch (err) {
-              showToast(
-                err.response?.data?.error || "Failed to remove friend",
-                "error",
-              );
-            }
-          }}
-          onMute={() => {
-            const key = conversationKeyForUser(profileUserId);
-            const wasMuted = mutedKeys.map(String).includes(String(key));
-            setMutedKeys(toggleMuteChat(user.id, key));
-            const request = wasMuted
-              ? unmuteChat({ peerId: profileUserId })
-              : muteChat({ peerId: profileUserId, duration: "always" });
-            request
-              .then((res) => {
-                if (res?.data) updateSessionUser(res.data);
-              })
-              .catch(() => { });
-          }}
-          onArchive={() => {
-            const key = conversationKeyForUser(profileUserId);
-            setArchivedKeys(toggleArchiveChat(user.id, key));
-          }}
-          onHide={(peer) => {
-            handleHideChat(peer);
-            setProfileUserId(null);
-            showToast("Chat hidden", "success");
-          }}
-          onBlock={(peer) => {
-            setProfileUserId(null);
-            handleBlockUser(peer);
-          }}
-          onOpenAiPanel={() => setAiPanelOpen(true)}
-          onClose={() => setProfileUserId(null)}
-          onLoaded={(data) => {
-            if (!data?.id) return;
-            setUsers((prev) => {
-              const id = String(data.id);
-              const idx = prev.findIndex((u) => String(u.id) === id);
-              if (idx < 0) return prev;
-              const next = [...prev];
-              next[idx] = { ...next[idx], ...data };
-              return next;
-            });
-            setSelected((cur) => {
-              if (
-                !cur ||
-                cur.type !== "dm" ||
-                String(cur.id) !== String(data.id)
-              )
-                return cur;
-              return {
-                ...cur,
-                peer: { ...(cur.peer || {}), ...data },
-                title: data.displayName || data.username || cur.title,
-              };
-            });
-          }}
-        />
+              online={onlineUserIds.has(String(profileUserId))}
+              muted={isChatMuted(user.id, conversationKeyForUser(profileUserId))}
+              archived={archivedKeys
+                .map(String)
+                .includes(String(conversationKeyForUser(profileUserId)))}
+              isFriend={isFriendWith(profileUserId)}
+              onRemoveFriend={async (peer) => {
+                try {
+                  await client.delete(`/users/friends/${peer.id}`);
+                  try {
+                    const { data } = await client.get("/users/me");
+                    if (data?.data) updateSessionUser(data.data);
+                  } catch {
+                    // non-fatal
+                  }
+                  showToast("Friend removed", "success");
+                  setProfileUserId(null);
+                  loadDirectory();
+                  loadMyFriends();
+                  loadFriendDiscover(search);
+                } catch (err) {
+                  showToast(
+                    err.response?.data?.error || "Failed to remove friend",
+                    "error",
+                  );
+                }
+              }}
+              onMute={() => {
+                const key = conversationKeyForUser(profileUserId);
+                const wasMuted = mutedKeys.map(String).includes(String(key));
+                setMutedKeys(toggleMuteChat(user.id, key));
+                const request = wasMuted
+                  ? unmuteChat({ peerId: profileUserId })
+                  : muteChat({ peerId: profileUserId, duration: "always" });
+                request
+                  .then((res) => {
+                    if (res?.data) updateSessionUser(res.data);
+                  })
+                  .catch(() => { });
+              }}
+              onArchive={() => {
+                const key = conversationKeyForUser(profileUserId);
+                setArchivedKeys(toggleArchiveChat(user.id, key));
+              }}
+              onHide={(peer) => {
+                handleHideChat(peer);
+                setProfileUserId(null);
+                showToast("Chat hidden", "success");
+              }}
+              onBlock={(peer) => {
+                setProfileUserId(null);
+                handleBlockUser(peer);
+              }}
+              onOpenAiPanel={() => setAiPanelOpen(true)}
+              onClose={() => setProfileUserId(null)}
+              onLoaded={(data) => {
+                if (!data?.id) return;
+                setUsers((prev) => {
+                  const id = String(data.id);
+                  const idx = prev.findIndex((u) => String(u.id) === id);
+                  if (idx < 0) return prev;
+                  const next = [...prev];
+                  next[idx] = { ...next[idx], ...data };
+                  return next;
+                });
+                setSelected((cur) => {
+                  if (
+                    !cur ||
+                    cur.type !== "dm" ||
+                    String(cur.id) !== String(data.id)
+                  )
+                    return cur;
+                  return {
+                    ...cur,
+                    peer: { ...(cur.peer || {}), ...data },
+                    title: data.displayName || data.username || cur.title,
+                  };
+                });
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
       {showChatMedia && (
-        <ChatMediaModal
-          messages={visibleMessages}
-          imageSrcMap={imageSrcMapRef.current}
-          videoSrcMap={videoSrcMapRef.current}
-          resolveSecretKey={resolveMySecretKey}
-          onImageReady={handleImageReady}
-          onVideoReady={handleVideoReady}
-          onImageClick={(id) => {
-            setShowChatMedia(false);
-            handleImagePreview(id);
-          }}
-          onVideoClick={(id) => {
-            setShowChatMedia(false);
-            handleVideoPreview(id);
-          }}
-          onClose={() => setShowChatMedia(false)}
-        />
+        <LazyChunkErrorBoundary onClose={() => setShowChatMedia(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <ChatMediaModal
+              messages={visibleMessages}
+              imageSrcMap={imageSrcMapRef.current}
+              videoSrcMap={videoSrcMapRef.current}
+              resolveSecretKey={resolveMySecretKey}
+              onImageReady={handleImageReady}
+              onVideoReady={handleVideoReady}
+              onImageClick={(id) => {
+                setShowChatMedia(false);
+                handleImagePreview(id);
+              }}
+              onVideoClick={(id) => {
+                setShowChatMedia(false);
+                handleVideoPreview(id);
+              }}
+              onClose={() => setShowChatMedia(false)}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
       {pollDraft && (
         <div
@@ -7578,53 +8197,66 @@ useEffect(() => {
       )}
 
       {showSettings && (
-        <SettingsModal
-          user={user}
-          initialTab={settingsTab}
-          className="qc-settings-sheet"
+        <LazyChunkErrorBoundary
           onClose={() => {
             setShowSettings(false);
             if (isSettingsRoute) navigate(selected ? chatPathForSelection(selected) : "/chat");
           }}
-          onImportKeys={handleImportKeyFile}
-          onGenerateKeys={requestGenerateKeys}
-          onUserUpdated={updateSessionUser}
-          onLogout={() => {
-            setShowSettings(false);
-            handleLogout();
-          }}
-          onExportChat={() => {
-            if (!selected || !messages.length) {
-              showToast("Open a chat to export", "info");
-              return;
-            }
-            const lines = visibleMessages
-              .map((m) => {
-                const who =
-                  String(m.from) === String(user.id)
-                    ? "You"
-                    : usernameById.get(String(m.from)) || "User";
-                return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${m.text || (m.attachment ? "[attachment]" : "[encrypted]")
-                  }`;
-              })
-              .join("\n");
-            const blob = new Blob([lines], { type: "text/plain" });
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = `quantumchat-${selected.title || "chat"}.txt`;
-            a.click();
-            showToast("Chat exported from this device", "success");
-          }}
-        />
+        >
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <SettingsModal
+              user={user}
+              initialTab={settingsTab}
+              className="qc-settings-sheet"
+              onClose={() => {
+                setShowSettings(false);
+                if (isSettingsRoute) navigate(selected ? chatPathForSelection(selected) : "/chat");
+              }}
+              onImportKeys={handleImportKeyFile}
+              onGenerateKeys={requestGenerateKeys}
+              onUserUpdated={updateSessionUser}
+              onLogout={() => {
+                setShowSettings(false);
+                handleLogout();
+              }}
+              onExportChat={() => {
+                if (!selected || !messages.length) {
+                  showToast("Open a chat to export", "info");
+                  return;
+                }
+                const lines = visibleMessages
+                  .map((m) => {
+                    const who =
+                      String(m.from) === String(user.id)
+                        ? "You"
+                        : usernameById.get(String(m.from)) || "User";
+                    return `[${new Date(m.createdAt).toLocaleString()}] ${who}: ${m.text || (m.attachment ? "[attachment]" : "[encrypted]")
+                      }`;
+                  })
+                  .join("\n");
+                const blob = new Blob([lines], { type: "text/plain" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `quantumchat-${selected.title || "chat"}.txt`;
+                a.click();
+                showToast("Chat exported from this device", "success");
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
 
       {forwardMessage && (
-        <ForwardModal
-          conversations={conversations}
-          busy={forwardBusy}
-          onClose={() => !forwardBusy && setForwardMessage(null)}
-          onForward={handleForwardToConversation}
-        />
+        <LazyChunkErrorBoundary onClose={() => !forwardBusy && setForwardMessage(null)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <ForwardModal
+              conversations={conversations}
+              busy={forwardBusy}
+              onClose={() => !forwardBusy && setForwardMessage(null)}
+              onForward={handleForwardToConversation}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
       {showVaultSetup && (
         <VaultSetupModal
@@ -7665,42 +8297,69 @@ useEffect(() => {
         />
       )}
       {showStarredMessages && (
-        <StarredMessagesModal
-          entries={
-            starredScope === 'chat' && selected
-              ? getStarredEntries(user.id).filter((e) => e.conversationKey === selected.key)
-              : getStarredEntries(user.id)
-          }
-          usernameById={usernameById}
-          currentUserId={user.id}
-          onSelect={handleOpenStarredEntry}
-          onUnstar={(id) => {
-            const nextIds = toggleStarredMessage(user.id, { id }, null);
-            setStarredIds(nextIds);
-            setExtrasTick((n) => n + 1);
-          }}
+        <LazyChunkErrorBoundary
           onClose={() => {
             setShowStarredMessages(false);
             setStarredScope('all');
           }}
-        />
+        >
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <StarredMessagesModal
+              entries={
+                (starredScope === 'chat' && selected
+                  ? [...importantEntries, ...getStarredEntries(user.id)].filter((e) => e.conversationKey === selected.key)
+                  : [...importantEntries, ...getStarredEntries(user.id)])
+              }
+              usernameById={usernameById}
+              currentUserId={user.id}
+              onSelect={handleOpenStarredEntry}
+              onCopy={(entry) => {
+                const text = entry?.text || (entry?.attachmentFilename ? `[${entry.attachmentFilename}]` : '');
+                if (!text) return;
+                navigator.clipboard?.writeText(text).then(
+                  () => showToast('Copied to clipboard', 'success'),
+                  () => showToast('Could not copy message', 'error'),
+                );
+              }}
+              onUnstar={(id) => {
+                const nextIds = toggleStarredMessage(user.id, { id }, null);
+                setStarredIds(nextIds);
+                setExtrasTick((n) => n + 1);
+              }}
+              onRemoveImportant={handleImportantMessage}
+              loading={importantLoading}
+              onClose={() => {
+                setShowStarredMessages(false);
+                setStarredScope('all');
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
       {messageInfoData && (
-        <MessageInfoModal
-          data={messageInfoData}
-          usernameById={usernameById}
-          currentUserId={user.id}
-          onSelectReply={handleSelectReplyFromInfo}
-          onClose={() => setMessageInfoData(null)}
-        />
+        <LazyChunkErrorBoundary onClose={() => setMessageInfoData(null)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <MessageInfoModal
+              data={messageInfoData}
+              usernameById={usernameById}
+              currentUserId={user.id}
+              onSelectReply={handleSelectReplyFromInfo}
+              onClose={() => setMessageInfoData(null)}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
       {editHistoryMessage && (
-        <EditHistoryModal
-          message={editHistoryMessage}
-          currentUserId={user.id}
-          resolveSecretKey={resolveMySecretKey}
-          onClose={() => setEditHistoryMessage(null)}
-        />
+        <LazyChunkErrorBoundary onClose={() => setEditHistoryMessage(null)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <EditHistoryModal
+              message={editHistoryMessage}
+              currentUserId={user.id}
+              resolveSecretKey={resolveMySecretKey}
+              onClose={() => setEditHistoryMessage(null)}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
       )}
       {logoutConfirmOpen && (
         <ConfirmDialog
@@ -7715,25 +8374,52 @@ useEffect(() => {
         />
       )}
 
-      <CameraCapture
-        open={cameraOpen}
-        onClose={() => setCameraOpen(false)}
-        onCapture={(file) => {
-          queueAttachmentFiles(file).catch((err) => {
-            showToast(err.message || "Camera upload failed", "error");
-          });
-        }}
-      />
+      {cameraOpen && (
+        <LazyChunkErrorBoundary onClose={() => setCameraOpen(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <CameraCapture
+              open={cameraOpen}
+              onClose={() => setCameraOpen(false)}
+              onCapture={(file) => {
+                queueAttachmentFiles(file).catch((err) => {
+                  showToast(err.message || "Camera upload failed", "error");
+                });
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
-      <ImageLightbox
-        isOpen={Boolean(gallery)}
-        items={gallery?.items || []}
-        index={gallery?.index || 0}
-        onIndexChange={(next) =>
-          setGallery((g) => (g ? { ...g, index: next } : g))
-        }
-        onClose={() => setGallery(null)}
-      />
+      {showCapsulePicker && (
+        <LazyChunkErrorBoundary onClose={() => setShowCapsulePicker(false)}>
+          <Suspense fallback={<ModalLoadingFallback />}>
+            <TimeCapsuleModal
+              open={showCapsulePicker}
+              onCancel={() => setShowCapsulePicker(false)}
+              onConfirm={(iso) => {
+                setCapsuleUnlocksAt(iso);
+                setShowCapsulePicker(false);
+              }}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
+
+      {Boolean(gallery) && (
+        <LazyChunkErrorBoundary onClose={() => setGallery(null)}>
+          <Suspense fallback={null}>
+            <ImageLightbox
+              isOpen={Boolean(gallery)}
+              items={gallery?.items || []}
+              index={gallery?.index || 0}
+              onIndexChange={(next) =>
+                setGallery((g) => (g ? { ...g, index: next } : g))
+              }
+              onClose={() => setGallery(null)}
+            />
+          </Suspense>
+        </LazyChunkErrorBoundary>
+      )}
 
       {videoPlayer && (
         <div
@@ -7811,6 +8497,8 @@ useEffect(() => {
           const i = steps.indexOf(disappearSeconds);
           setDisappearSeconds(steps[(i + 1) % steps.length]);
         }}
+        onTimeCapsule={() => setShowCapsulePicker(true)}
+        capsuleActive={Boolean(capsuleUnlocksAt)}
         allowForward={allowForward}
         onToggleForward={() => setAllowForward((v) => !v)}
         forwardUntilSeconds={forwardUntilSeconds}
@@ -7865,6 +8553,13 @@ useEffect(() => {
               )
             : false
         }
+        important={
+          actionSheetMessage
+            ? importantEntries.some(
+              (entry) => String(entry.id || entry._id) === String(actionSheetMessage.id || actionSheetMessage._id),
+            )
+            : false
+        }
         pinned={
           actionSheetMessage
             ? pinnedIds
@@ -7904,9 +8599,24 @@ useEffect(() => {
           handleDeleteMessage(msg?.id || msg?._id || msg)
         }
         onStar={(msg) => handleStarMessage(msg?.id || msg?._id || msg)}
+        onImportant={handleImportantMessage}
         onPin={(msg) => handlePinMessage(msg?.id || msg?._id || msg)}
         onShowInfo={handleShowMessageInfo}
       />
+
+      {capsuleUnlocksAt && (
+  <div className="capsule-picker-row">
+    <span>⏳ Unlocks {new Date(capsuleUnlocksAt).toLocaleString()}</span>
+    <button
+      type="button"
+      className="capsule-picker-close"
+      title="Cancel time capsule"
+      onClick={() => setCapsuleUnlocksAt("")}
+    >
+      <X size={16} />
+    </button>
+  </div>
+)}
 
       {!isCompactChrome && (
         <InfoPanel
@@ -7916,6 +8626,7 @@ useEffect(() => {
           users={users}
           onOpenProfile={setProfileUserId}
           onOpenGroupSettings={() => setShowGroupSettings(true)}
+          onOpenCommandCenter={() => setShowCommandCenter(true)}
         >
           {selected?.type === "dm" &&
             !selected.isSelfChat &&
@@ -7954,6 +8665,10 @@ useEffect(() => {
             onOpenGroupSettings={() => {
               closeInfoPanel();
               setShowGroupSettings(true);
+            }}
+            onOpenCommandCenter={() => {
+              closeInfoPanel();
+              setShowCommandCenter(true);
             }}
           >
             {selected?.type === "dm" &&

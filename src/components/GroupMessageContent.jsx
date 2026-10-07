@@ -8,6 +8,7 @@ import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import VoicePlayer from './VoicePlayer.jsx';
 import LinkifiedText from './LinkifiedText.jsx';
+import MarkdownContent, { isAiMarkdownMessage } from './MarkdownContent.jsx';
 
 function MentionText({ text }) {
   const parts = [];
@@ -30,18 +31,29 @@ function MentionText({ text }) {
 function mediaKindFromPayload(payload) {
   const mime = String(payload?.mimetype || '').toLowerCase();
   const name = String(payload?.filename || '').toLowerCase();
-  if (mime.startsWith('audio/') || /\.(webm|ogg|mp3|m4a|wav|aac)$/i.test(name) || /^voice-note/i.test(name)) {
+  if (mime.startsWith('video/')) return 'video';
+  if (
+    mime.startsWith('audio/') ||
+    /^voice-note/i.test(name) ||
+    /\.(mp3|m4a|wav|aac|ogg|oga|opus|flac)$/i.test(name) ||
+    (/\.webm$/i.test(name) && (/^voice-note/i.test(name) || mime.startsWith('audio/')))
+  ) {
     return 'audio';
   }
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) {
+    if (mime === 'image/svg+xml' || name.endsWith('.svg')) return 'file';
+    return 'image';
+  }
   if (mime.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(name)) return 'video';
-  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)) return 'image';
-  return 'image';
+  if (mime === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  return 'file';
 }
 
 function GroupFileCard({ payload, isMine }) {
   const [url, setUrl] = useState(null);
   const [status, setStatus] = useState('idle');
   const [mime, setMime] = useState(payload.mimetype || 'application/octet-stream');
+  const kind = mediaKindFromPayload(payload);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +86,33 @@ function GroupFileCard({ payload, isMine }) {
     };
   }, [payload?.attachmentId, payload?.key, payload?.nonce, payload?.mimetype]);
 
-  if (status === 'loading') return <div className="skeleton attachment-preview-placeholder" />;
+  if (status === 'loading') {
+    if (kind === 'audio') {
+      return (
+        <div className="voice-player-modern skeleton-voice-loading" aria-label="Loading voice note">
+          <div className="voice-main-row">
+            <div className="voice-play-btn skeleton" style={{ width: 32, height: 32, borderRadius: '50%', flexShrink: 0 }} />
+            <div className="voice-wave-bars" style={{ pointerEvents: 'none' }}>
+              {Array.from({ length: 24 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="voice-wave-bar skeleton"
+                  style={{ height: `${20 + ((i * 7) % 65)}%` }}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="voice-meta-row">
+            <div className="voice-meta-left">
+              <span className="voice-time-label skeleton" style={{ width: 32, height: 11, borderRadius: 4 }} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return <div className="skeleton attachment-preview-placeholder" />;
+  }
+
   if (status === 'error' || !url) {
     return (
       <div className="attachment-chip">
@@ -84,16 +122,16 @@ function GroupFileCard({ payload, isMine }) {
     );
   }
 
-  if (mime.startsWith('image/') && mime !== 'image/svg+xml' && !/\.svg$/i.test(payload.filename || '')) {
-    return <img className="attachment-preview" src={url} alt={payload.filename || 'Image'} />;
-  }
-  if (mime.startsWith('video/')) {
-    return <video className="attachment-video" src={url} controls playsInline />;
-  }
-  if (mime.startsWith('audio/')) {
+  if (kind === 'audio') {
     return <VoicePlayer url={url} isMine={isMine} />;
   }
-  if (mime === 'application/pdf') {
+  if (kind === 'image') {
+    return <img className="attachment-preview" src={url} alt={payload.filename || 'Image'} />;
+  }
+  if (kind === 'video') {
+    return <video className="attachment-video" src={url} controls playsInline />;
+  }
+  if (kind === 'pdf') {
     return (
       <iframe
         className="attachment-pdf"
@@ -272,6 +310,7 @@ export default function GroupMessageContent({
   onVideoPreview,
   onVideoReady,
   onBurnViewOnce,
+  onTranscriptStateChange,
 }) {
   if (!payload || payload.type === 'text') {
     const body = payload?.body ?? message?.text ?? '';
@@ -441,6 +480,8 @@ export default function GroupMessageContent({
     return (
       <AttachmentBubble
         attachment={attachment}
+        message={message}
+        currentUserId={currentUserId}
         isMine={isMine}
         resolveSecretKey={resolveSecretKey}
         onImagePreview={onImagePreview}
@@ -451,9 +492,13 @@ export default function GroupMessageContent({
         viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
         viewOnceMediaKind={message.viewOnceMediaKind}
         onBurnViewOnce={onBurnViewOnce}
+        onTranscriptStateChange={onTranscriptStateChange}
       />
     );
   }
 
+  if (isAiMarkdownMessage(message)) {
+    return <MarkdownContent text={message?.text || ''} />;
+  }
   return <LinkifiedText text={message?.text || ''} />;
 }
