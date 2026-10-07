@@ -25,6 +25,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchGroupChatTheme, fetchGroupWallpaperImageUrl, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { getUnreadCount as fetchUnreadNotificationCount } from "../api/notifications.js";
 import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import { getPeerVaultDecoyStatus } from "../api/vault.js";
@@ -50,8 +51,8 @@ import DragDropOverlay from "../components/DragDropOverlay.jsx";
 import EditHistoryModal from "../components/EditHistoryModal.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
 import ForwardModal from "../components/ForwardModal.jsx";
-import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
 import GroupCommandCenter from "../components/GroupCommandCenter.jsx";
+import GroupSettingsModal from "../components/GroupSettingsModal.jsx";
 import ImageLightbox from "../components/ImageLightbox.jsx";
 import MeetingOverlay from "../components/MeetingOverlay.jsx";
 import MessageInfoModal from "../components/MessageInfoModal.jsx";
@@ -95,13 +96,6 @@ import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 import activityStore from "../utils/activityStore.js";
-import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia, updateOfflineMedia } from "../utils/offlineMediaQueue.js";
-import {
-  getAllOfflineMessages,
-  getOfflineMessages,
-  removeOfflineMessage,
-  saveOfflineMessage,
-} from "../utils/offlineMessageQueue.js";
 import {
   getArchivedChatKeys,
   getChatDraft,
@@ -121,6 +115,7 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { getDisplayName } from "../utils/getDisplayName.js";
 import {
   encodeAnnouncement,
@@ -136,6 +131,9 @@ import {
   unhideChat,
 } from "../utils/hiddenChats.js";
 import {
+  getAutomaticImportantSource
+} from "../utils/importantMessages.js";
+import {
   clearAllStarred,
   clearAutoImportantRemoval,
   deleteMessageForMe,
@@ -149,10 +147,6 @@ import {
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
-import {
-  getAutomaticImportantSource,
-  isAutomaticImportantMessage,
-} from "../utils/importantMessages.js";
 import { getMessagePreviewText } from "../utils/messagePreview.js";
 import {
   buildGroupedNotificationText,
@@ -160,6 +154,13 @@ import {
   shouldNotify,
   showNotificationPopup
 } from "../utils/notificationDispatch.js";
+import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia, updateOfflineMedia } from "../utils/offlineMediaQueue.js";
+import {
+  getAllOfflineMessages,
+  getOfflineMessages,
+  removeOfflineMessage,
+  saveOfflineMessage,
+} from "../utils/offlineMessageQueue.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
   conversationKeyForGroup,
@@ -172,7 +173,6 @@ import {
   setConversationActivity,
 } from "../utils/readState.js";
 import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
-import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
@@ -429,6 +429,28 @@ export default function Chat() {
   const searchDebounceRef = useRef(null);
   const draftConversationKeyRef = useRef(null);
   const draftReadyConversationKeyRef = useRef(null);
+  const hasShownUnreadPopupRef = useRef(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+useEffect(() => {
+  if (!user?.id) return;
+  let active = true;
+  fetchUnreadNotificationCount()
+    .then((count) => {
+      if (!active) return;
+      setUnreadNotificationCount(count);
+      if (count > 0 && !hasShownUnreadPopupRef.current) {
+        hasShownUnreadPopupRef.current = true;
+        showToast(
+          `You have ${count} unread ${count === 1 ? 'update' : 'updates'} — check all the unread activities`,
+          'info',
+          8000,
+          { actionLabel: 'View Activity', onAction: () => navigate('/chat/activity') }
+        );
+      }
+    })
+    .catch(() => {});
+  return () => { active = false; };
+}, [user?.id, location.pathname]);
 
   useEffect(() => {
     if (
@@ -2455,6 +2477,8 @@ useEffect(() => {
     socket.on("group:new", handleGroupNew);
     socket.on("group:updated", handleGroupUpdated);
     socket.on("group:deleted", handleGroupDeleted);
+    socket.on("mention:new", handleMentionNew);
+    socket.on("notification:new", () => setUnreadNotificationCount((n) => n + 1));
     socket.on("message:poll", handlePollUpdate);
     socket.on("mention:new", handleMentionNew);
     socket.on("typing:start", handleTypingStart);
@@ -2489,6 +2513,8 @@ useEffect(() => {
       socket.off("message:edited", handleEdited);
       socket.off("message:view-once-opened", handleViewOnceOpened);
       socket.off("group:new", handleGroupNew);
+      socket.off("mention:new", handleMentionNew);
+      socket.off("notification:new");
       socket.off("group:updated", handleGroupUpdated);
       socket.off("group:deleted", handleGroupDeleted);
       socket.off("message:poll", handlePollUpdate);
@@ -3601,10 +3627,18 @@ useEffect(() => {
   function handleBackToList() {
     applyConversationSelection(null, { syncUrl: true });
   }
-  async function handleMarkAllRead() {
+    async function handleMarkAllRead() {
+    if (unreadNotificationCount > 0) {
+      markAllNotificationsRead()
+        .then(() => setUnreadNotificationCount(0))
+        .catch(() => {});
+    }
+
     const unreadConvos = conversations.filter((c) => c.unread);
     if (!unreadConvos.length) {
-      showToast("No unread conversations", "info");
+      if (unreadNotificationCount === 0) {
+        showToast("No unread conversations", "info");
+      }
       return;
     }
 
@@ -6545,7 +6579,8 @@ useEffect(() => {
           navigate("/chat/settings");
         }}
         onLogout={handleLogout}
-        onMarkAllRead={handleMarkAllRead}
+         onMarkAllRead={handleMarkAllRead}
+        unreadNotificationCount={unreadNotificationCount}
         vaultEnabled={vaultEnabled}
         vaultUnlocked={vaultUnlocked}
         onOpenVault={() => {
