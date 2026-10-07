@@ -18930,6 +18930,378 @@ body.theme-light .settings-field select option {
   background: #ffffff;
   color: var(--text-primary);
 }
+/* Dreamcloud — the settings layer above hard-codes dark surfaces, so restate
+   it with the theme's own tokens (same coverage as the light block). */
+[data-theme='dreamcloud'],
+body.theme-dreamcloud {
+  --read-receipt: var(--accent-solid);
+  --read-receipt-mine: #ffffff;
+  --bg-tile: var(--bg-elevated);
+  --bg-tile-hover: var(--bg-surface);
+}
+[data-theme='dreamcloud'] .settings-modal,
+body.theme-dreamcloud .settings-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--border-subtle);
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-modal-header,
+body.theme-dreamcloud .settings-modal-header {
+  border-bottom: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-modal-heading h2,
+body.theme-dreamcloud .settings-modal-heading h2 {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-modal-heading p,
+body.theme-dreamcloud .settings-modal-heading p {
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-close,
+body.theme-dreamcloud .settings-close {
+  border: 1px solid var(--border-subtle);
+  background: var(--chip-bg);
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-close:hover,
+body.theme-dreamcloud .settings-close:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: var(--error);
+}
+[data-theme='dreamcloud'] .settings-tabs,
+body.theme-dreamcloud .settings-tabs {
+  background: var(--bg-body);
+  border-bottom: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-tab,
+body.theme-dreamcloud .settings-tab {
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-tab:hover,
+body.theme-dreamcloud .settings-tab:hover {
+  color: var(--text-primary);
+  background: var(--chip-bg);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-tab.active,
+body.theme-dreamcloud .settings-tab.active {
+  color: var(--accent-solid);
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-tab.active .settings-tab-icon,
+body.theme-dreamcloud .settings-tab.active .settings-tab-icon {
+  color: var(--accent-solid);
+  filter: none;
+}
+[data-theme='dreamcloud'] .settings-row.settings-toggle-tile,
+body.theme-dreamcloud .settings-row.settings-toggle-tile {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-row.settings-toggle-tile .settings-row-right,
+body.theme-dreamcloud .settings-row.settings-toggle-tile .settings-row-right {
+  border-top: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-status-chip,
+body.theme-dreamcloud .settings-status-chip {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-status-chip.active,
+body.theme-dreamcloud .settings-status-chip.active {
+  background: var(--accent-muted);
+  color: var(--accent-solid);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-fieldset-shield,
+body.theme-dreamcloud .settings-fieldset-shield {
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme='dreamcloud'] .settings-fieldset-shield:hover,
+body.theme-dreamcloud .settings-fieldset-shield:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: var(--shadow-md);
+}
+[data-theme='dreamcloud'] .settings-shield-status,
+body.theme-dreamcloud .settings-shield-status {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-shield-status.active,
+body.theme-dreamcloud .settings-shield-status.active {
+  background: var(--accent-muted);
+  color: var(--accent-solid);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-shield-badge,
+body.theme-dreamcloud .settings-shield-badge {
+  color: var(--text-secondary);
+  background: var(--chip-bg);
+  border: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-shield-badge svg,
+body.theme-dreamcloud .settings-shield-badge svg {
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-row,
+body.theme-dreamcloud .settings-row {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-row:hover:not(:disabled),
+body.theme-dreamcloud .settings-row:hover:not(:disabled) {
+  border-color: var(--accent-solid);
+  background: var(--accent-muted);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-row-static:hover,
+body.theme-dreamcloud .settings-row-static:hover {
+  border-color: var(--border-subtle) !important;
+  background: var(--bg-body) !important;
+  box-shadow: none !important;
+}
+[data-theme='dreamcloud'] .settings-empty-hint,
+body.theme-dreamcloud .settings-empty-hint {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+}
+[data-theme='dreamcloud'] .settings-device-avatar,
+body.theme-dreamcloud .settings-device-avatar {
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-current-device-tag,
+body.theme-dreamcloud .settings-current-device-tag {
+  color: var(--accent-solid);
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme='dreamcloud'] .settings-blindness-card,
+body.theme-dreamcloud .settings-blindness-card {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-blindness-tile,
+body.theme-dreamcloud .settings-blindness-tile {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-blocked-name,
+body.theme-dreamcloud .settings-blocked-name {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-empty-state-title,
+body.theme-dreamcloud .settings-empty-state-title {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-btn.ghost,
+body.theme-dreamcloud .settings-btn.ghost {
+  background: var(--bg-tile);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-xs, none);
+}
+[data-theme='dreamcloud'] .settings-btn.ghost:hover:not(:disabled),
+body.theme-dreamcloud .settings-btn.ghost:hover:not(:disabled) {
+  background: var(--accent-muted);
+  color: var(--accent-solid);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 2px 8px var(--accent-muted);
+}
+[data-theme='dreamcloud'] .settings-btn-unblock,
+body.theme-dreamcloud .settings-btn-unblock {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-btn-unblock:hover:not(:disabled),
+body.theme-dreamcloud .settings-btn-unblock:hover:not(:disabled) {
+  border-color: var(--accent-solid);
+  color: #ffffff;
+  background: var(--accent-solid);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-export-card,
+body.theme-dreamcloud .settings-export-card {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-export-title,
+body.theme-dreamcloud .settings-export-title {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-export-icon,
+body.theme-dreamcloud .settings-export-icon {
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-identity,
+body.theme-dreamcloud .settings-identity {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-identity:hover,
+body.theme-dreamcloud .settings-identity:hover {
+  border-color: var(--accent-solid);
+  box-shadow: var(--shadow-md);
+}
+[data-theme='dreamcloud'] .settings-account-name,
+body.theme-dreamcloud .settings-account-name {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-account-handle,
+body.theme-dreamcloud .settings-account-handle {
+  color: var(--accent-solid);
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+[data-theme='dreamcloud'] .settings-fieldset,
+body.theme-dreamcloud .settings-fieldset {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-fieldset:hover,
+body.theme-dreamcloud .settings-fieldset:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme='dreamcloud'] .settings-lang-card,
+body.theme-dreamcloud .settings-lang-card {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-lang-card:hover,
+body.theme-dreamcloud .settings-lang-card:hover {
+  border-color: var(--accent-solid);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-lang-card.active,
+body.theme-dreamcloud .settings-lang-card.active {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-muted);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-lang-native,
+body.theme-dreamcloud .settings-lang-native {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-lang-card.active .settings-lang-native,
+body.theme-dreamcloud .settings-lang-card.active .settings-lang-native {
+  color: var(--accent-solid);
+  text-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-lang-card.active .settings-lang-english,
+body.theme-dreamcloud .settings-lang-card.active .settings-lang-english {
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-verify-banner,
+body.theme-dreamcloud .settings-verify-banner {
+  background: #fffbeb;
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-verify-banner strong,
+body.theme-dreamcloud .settings-verify-banner strong {
+  color: #b45309;
+}
+[data-theme='dreamcloud'] .settings-verify-banner p,
+body.theme-dreamcloud .settings-verify-banner p {
+  color: #92400e;
+}
+[data-theme='dreamcloud'] .settings-field > span,
+body.theme-dreamcloud .settings-field > span {
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-field input,
+[data-theme='dreamcloud'] .settings-field textarea,
+[data-theme='dreamcloud'] .settings-field select,
+body.theme-dreamcloud .settings-field input,
+body.theme-dreamcloud .settings-field textarea,
+body.theme-dreamcloud .settings-field select {
+  background-color: var(--bg-input);
+  border-color: var(--secondary-btn-border);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 2px rgba(190, 24, 172, 0.06);
+}
+[data-theme='dreamcloud'] .settings-field select,
+body.theme-dreamcloud .settings-field select {
+  background: var(--bg-input) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23d946af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 16px;
+}
+[dir='rtl'][data-theme='dreamcloud'] .settings-field select,
+[dir='rtl'] body.theme-dreamcloud .settings-field select {
+  background-position: left 12px center;
+}
+[data-theme='dreamcloud'] .settings-field input:hover,
+[data-theme='dreamcloud'] .settings-field textarea:hover,
+[data-theme='dreamcloud'] .settings-field select:hover,
+body.theme-dreamcloud .settings-field input:hover,
+body.theme-dreamcloud .settings-field textarea:hover,
+body.theme-dreamcloud .settings-field select:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+[data-theme='dreamcloud'] .settings-field input:focus,
+[data-theme='dreamcloud'] .settings-field textarea:focus,
+[data-theme='dreamcloud'] .settings-field select:focus,
+body.theme-dreamcloud .settings-field input:focus,
+body.theme-dreamcloud .settings-field textarea:focus,
+body.theme-dreamcloud .settings-field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+[data-theme='dreamcloud'] .settings-field select option,
+body.theme-dreamcloud .settings-field select option {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-empty-state-card,
+body.theme-dreamcloud .settings-empty-state-card {
+  background: var(--bg-body);
+}
+[data-theme='dreamcloud'] .settings-safety-hint,
+body.theme-dreamcloud .settings-safety-hint {
+  background: var(--chip-bg);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-blindness-val,
+body.theme-dreamcloud .settings-blindness-val {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-blindness-val.highlight,
+[data-theme='dreamcloud'] .settings-key-sync-banner.synced,
+body.theme-dreamcloud .settings-blindness-val.highlight,
+body.theme-dreamcloud .settings-key-sync-banner.synced {
+  color: #15803d;
+  text-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-blindness-note,
+body.theme-dreamcloud .settings-blindness-note {
+  border-top-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-key-sync-banner.warning,
+[data-theme='dreamcloud'] .settings-status-chip.unverified,
+body.theme-dreamcloud .settings-key-sync-banner.warning,
+body.theme-dreamcloud .settings-status-chip.unverified {
+  color: var(--warning-text);
+  box-shadow: none;
+}
 [dir="rtl"] .user-list-item.active::before {
   left: auto;
   right: 0;
