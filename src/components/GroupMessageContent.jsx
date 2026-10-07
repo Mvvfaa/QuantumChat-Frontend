@@ -8,6 +8,7 @@ import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import VoicePlayer from './VoicePlayer.jsx';
 import LinkifiedText from './LinkifiedText.jsx';
+import MarkdownContent, { isAiMarkdownMessage } from './MarkdownContent.jsx';
 
 function MentionText({ text }) {
   const parts = [];
@@ -30,6 +31,7 @@ function MentionText({ text }) {
 function mediaKindFromPayload(payload) {
   const mime = String(payload?.mimetype || '').toLowerCase();
   const name = String(payload?.filename || '').toLowerCase();
+  if (mime.startsWith('video/')) return 'video';
   if (
     mime.startsWith('audio/') ||
     /^voice-note/i.test(name) ||
@@ -308,6 +310,7 @@ export default function GroupMessageContent({
   onVideoPreview,
   onVideoReady,
   onBurnViewOnce,
+  onTranscriptStateChange,
 }) {
   if (!payload || payload.type === 'text') {
     const body = payload?.body ?? message?.text ?? '';
@@ -477,6 +480,8 @@ export default function GroupMessageContent({
     return (
       <AttachmentBubble
         attachment={attachment}
+        message={message}
+        currentUserId={currentUserId}
         isMine={isMine}
         resolveSecretKey={resolveSecretKey}
         onImagePreview={onImagePreview}
@@ -487,9 +492,13 @@ export default function GroupMessageContent({
         viewOnceOpened={Boolean(message.viewOnceOpenedAt)}
         viewOnceMediaKind={message.viewOnceMediaKind}
         onBurnViewOnce={onBurnViewOnce}
+        onTranscriptStateChange={onTranscriptStateChange}
       />
     );
   }
 
+  if (isAiMarkdownMessage(message)) {
+    return <MarkdownContent text={message?.text || ''} />;
+  }
   return <LinkifiedText text={message?.text || ''} />;
 }

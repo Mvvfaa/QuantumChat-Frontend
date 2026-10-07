@@ -318,6 +318,17 @@
   word-break: break-all;
 }
 
+.ai-panel-error {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-sm, 8px);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #991b1b;
+  background: color-mix(in srgb, #fecaca 70%, transparent);
+  border: 1px solid color-mix(in srgb, #f87171 55%, transparent);
+}
+
 .ai-panel-answer {
   flex: 1;
   overflow: auto;
@@ -4495,6 +4506,134 @@ input:focus-visible,
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: normal;
+}
+
+/* QuantumAI Markdown — bold/italic/lists/tables without raw ** markers */
+.message-text--markdown {
+  display: block;
+  white-space: normal;
+}
+
+.message-bubble-wrap:has(.message-text--markdown) {
+  max-width: min(92%, 640px);
+}
+
+.md-content {
+  font-size: inherit;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+}
+
+.md-content .md-p {
+  margin: 0 0 0.55em;
+}
+
+.md-content .md-p:last-child {
+  margin-bottom: 0;
+}
+
+.md-content strong {
+  font-weight: 700;
+}
+
+.md-content em {
+  font-style: italic;
+}
+
+.md-content ul,
+.md-content ol {
+  margin: 0.35em 0 0.55em;
+  padding-inline-start: 1.25em;
+}
+
+.md-content li {
+  margin: 0.15em 0;
+}
+
+.md-content h1,
+.md-content h2,
+.md-content h3,
+.md-content h4 {
+  margin: 0.65em 0 0.35em;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.md-content h1 { font-size: 1.15em; }
+.md-content h2 { font-size: 1.08em; }
+.md-content h3,
+.md-content h4 { font-size: 1.02em; }
+
+.md-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.md-content pre {
+  margin: 0.5em 0;
+  padding: 0.65em 0.75em;
+  border-radius: 8px;
+  overflow-x: auto;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.md-content pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.md-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0.55em 0;
+  border-radius: 8px;
+}
+
+.md-content table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.md-content th,
+.md-content td {
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  padding: 0.35em 0.55em;
+  text-align: start;
+  vertical-align: top;
+}
+
+.md-content th {
+  font-weight: 700;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.md-content blockquote {
+  margin: 0.45em 0;
+  padding: 0.15em 0 0.15em 0.7em;
+  border-inline-start: 3px solid color-mix(in srgb, currentColor 35%, transparent);
+  opacity: 0.92;
+}
+
+.md-content a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-content hr {
+  border: none;
+  border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  margin: 0.7em 0;
+}
+
+.ai-panel-answer .md-content {
+  text-align: start;
 }
 
 /* Large animated emoji-only messages (WhatsApp-style) */
@@ -18791,6 +18930,378 @@ body.theme-light .settings-field select option {
   background: #ffffff;
   color: var(--text-primary);
 }
+/* Dreamcloud — the settings layer above hard-codes dark surfaces, so restate
+   it with the theme's own tokens (same coverage as the light block). */
+[data-theme='dreamcloud'],
+body.theme-dreamcloud {
+  --read-receipt: var(--accent-solid);
+  --read-receipt-mine: #ffffff;
+  --bg-tile: var(--bg-elevated);
+  --bg-tile-hover: var(--bg-surface);
+}
+[data-theme='dreamcloud'] .settings-modal,
+body.theme-dreamcloud .settings-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--border-subtle);
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-modal-header,
+body.theme-dreamcloud .settings-modal-header {
+  border-bottom: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-modal-heading h2,
+body.theme-dreamcloud .settings-modal-heading h2 {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-modal-heading p,
+body.theme-dreamcloud .settings-modal-heading p {
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-close,
+body.theme-dreamcloud .settings-close {
+  border: 1px solid var(--border-subtle);
+  background: var(--chip-bg);
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-close:hover,
+body.theme-dreamcloud .settings-close:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: var(--error);
+}
+[data-theme='dreamcloud'] .settings-tabs,
+body.theme-dreamcloud .settings-tabs {
+  background: var(--bg-body);
+  border-bottom: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-tab,
+body.theme-dreamcloud .settings-tab {
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-tab:hover,
+body.theme-dreamcloud .settings-tab:hover {
+  color: var(--text-primary);
+  background: var(--chip-bg);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-tab.active,
+body.theme-dreamcloud .settings-tab.active {
+  color: var(--accent-solid);
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-tab.active .settings-tab-icon,
+body.theme-dreamcloud .settings-tab.active .settings-tab-icon {
+  color: var(--accent-solid);
+  filter: none;
+}
+[data-theme='dreamcloud'] .settings-row.settings-toggle-tile,
+body.theme-dreamcloud .settings-row.settings-toggle-tile {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-row.settings-toggle-tile .settings-row-right,
+body.theme-dreamcloud .settings-row.settings-toggle-tile .settings-row-right {
+  border-top: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-status-chip,
+body.theme-dreamcloud .settings-status-chip {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-status-chip.active,
+body.theme-dreamcloud .settings-status-chip.active {
+  background: var(--accent-muted);
+  color: var(--accent-solid);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-fieldset-shield,
+body.theme-dreamcloud .settings-fieldset-shield {
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme='dreamcloud'] .settings-fieldset-shield:hover,
+body.theme-dreamcloud .settings-fieldset-shield:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: var(--shadow-md);
+}
+[data-theme='dreamcloud'] .settings-shield-status,
+body.theme-dreamcloud .settings-shield-status {
+  background: var(--chip-bg);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-shield-status.active,
+body.theme-dreamcloud .settings-shield-status.active {
+  background: var(--accent-muted);
+  color: var(--accent-solid);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-shield-badge,
+body.theme-dreamcloud .settings-shield-badge {
+  color: var(--text-secondary);
+  background: var(--chip-bg);
+  border: 1px solid var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-shield-badge svg,
+body.theme-dreamcloud .settings-shield-badge svg {
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-row,
+body.theme-dreamcloud .settings-row {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-row:hover:not(:disabled),
+body.theme-dreamcloud .settings-row:hover:not(:disabled) {
+  border-color: var(--accent-solid);
+  background: var(--accent-muted);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-row-static:hover,
+body.theme-dreamcloud .settings-row-static:hover {
+  border-color: var(--border-subtle) !important;
+  background: var(--bg-body) !important;
+  box-shadow: none !important;
+}
+[data-theme='dreamcloud'] .settings-empty-hint,
+body.theme-dreamcloud .settings-empty-hint {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+}
+[data-theme='dreamcloud'] .settings-device-avatar,
+body.theme-dreamcloud .settings-device-avatar {
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-current-device-tag,
+body.theme-dreamcloud .settings-current-device-tag {
+  color: var(--accent-solid);
+  background: var(--accent-muted);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme='dreamcloud'] .settings-blindness-card,
+body.theme-dreamcloud .settings-blindness-card {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-blindness-tile,
+body.theme-dreamcloud .settings-blindness-tile {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-blocked-name,
+body.theme-dreamcloud .settings-blocked-name {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-empty-state-title,
+body.theme-dreamcloud .settings-empty-state-title {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-btn.ghost,
+body.theme-dreamcloud .settings-btn.ghost {
+  background: var(--bg-tile);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-xs, none);
+}
+[data-theme='dreamcloud'] .settings-btn.ghost:hover:not(:disabled),
+body.theme-dreamcloud .settings-btn.ghost:hover:not(:disabled) {
+  background: var(--accent-muted);
+  color: var(--accent-solid);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 2px 8px var(--accent-muted);
+}
+[data-theme='dreamcloud'] .settings-btn-unblock,
+body.theme-dreamcloud .settings-btn-unblock {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-btn-unblock:hover:not(:disabled),
+body.theme-dreamcloud .settings-btn-unblock:hover:not(:disabled) {
+  border-color: var(--accent-solid);
+  color: #ffffff;
+  background: var(--accent-solid);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-export-card,
+body.theme-dreamcloud .settings-export-card {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-export-title,
+body.theme-dreamcloud .settings-export-title {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-export-icon,
+body.theme-dreamcloud .settings-export-icon {
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-identity,
+body.theme-dreamcloud .settings-identity {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-identity:hover,
+body.theme-dreamcloud .settings-identity:hover {
+  border-color: var(--accent-solid);
+  box-shadow: var(--shadow-md);
+}
+[data-theme='dreamcloud'] .settings-account-name,
+body.theme-dreamcloud .settings-account-name {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-account-handle,
+body.theme-dreamcloud .settings-account-handle {
+  color: var(--accent-solid);
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+[data-theme='dreamcloud'] .settings-fieldset,
+body.theme-dreamcloud .settings-fieldset {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-fieldset:hover,
+body.theme-dreamcloud .settings-fieldset:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+[data-theme='dreamcloud'] .settings-lang-card,
+body.theme-dreamcloud .settings-lang-card {
+  background: var(--bg-body);
+  border-color: var(--border-subtle);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-lang-card:hover,
+body.theme-dreamcloud .settings-lang-card:hover {
+  border-color: var(--accent-solid);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-lang-card.active,
+body.theme-dreamcloud .settings-lang-card.active {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--accent-muted);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), var(--shadow-sm);
+}
+[data-theme='dreamcloud'] .settings-lang-native,
+body.theme-dreamcloud .settings-lang-native {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-lang-card.active .settings-lang-native,
+body.theme-dreamcloud .settings-lang-card.active .settings-lang-native {
+  color: var(--accent-solid);
+  text-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-lang-card.active .settings-lang-english,
+body.theme-dreamcloud .settings-lang-card.active .settings-lang-english {
+  color: var(--accent-solid);
+}
+[data-theme='dreamcloud'] .settings-verify-banner,
+body.theme-dreamcloud .settings-verify-banner {
+  background: #fffbeb;
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-verify-banner strong,
+body.theme-dreamcloud .settings-verify-banner strong {
+  color: #b45309;
+}
+[data-theme='dreamcloud'] .settings-verify-banner p,
+body.theme-dreamcloud .settings-verify-banner p {
+  color: #92400e;
+}
+[data-theme='dreamcloud'] .settings-field > span,
+body.theme-dreamcloud .settings-field > span {
+  color: var(--text-secondary);
+}
+[data-theme='dreamcloud'] .settings-field input,
+[data-theme='dreamcloud'] .settings-field textarea,
+[data-theme='dreamcloud'] .settings-field select,
+body.theme-dreamcloud .settings-field input,
+body.theme-dreamcloud .settings-field textarea,
+body.theme-dreamcloud .settings-field select {
+  background-color: var(--bg-input);
+  border-color: var(--secondary-btn-border);
+  color: var(--text-primary);
+  box-shadow: inset 0 1px 2px rgba(190, 24, 172, 0.06);
+}
+[data-theme='dreamcloud'] .settings-field select,
+body.theme-dreamcloud .settings-field select {
+  background: var(--bg-input) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23d946af' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 16px;
+}
+[dir='rtl'][data-theme='dreamcloud'] .settings-field select,
+[dir='rtl'] body.theme-dreamcloud .settings-field select {
+  background-position: left 12px center;
+}
+[data-theme='dreamcloud'] .settings-field input:hover,
+[data-theme='dreamcloud'] .settings-field textarea:hover,
+[data-theme='dreamcloud'] .settings-field select:hover,
+body.theme-dreamcloud .settings-field input:hover,
+body.theme-dreamcloud .settings-field textarea:hover,
+body.theme-dreamcloud .settings-field select:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+[data-theme='dreamcloud'] .settings-field input:focus,
+[data-theme='dreamcloud'] .settings-field textarea:focus,
+[data-theme='dreamcloud'] .settings-field select:focus,
+body.theme-dreamcloud .settings-field input:focus,
+body.theme-dreamcloud .settings-field textarea:focus,
+body.theme-dreamcloud .settings-field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+[data-theme='dreamcloud'] .settings-field select option,
+body.theme-dreamcloud .settings-field select option {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-empty-state-card,
+body.theme-dreamcloud .settings-empty-state-card {
+  background: var(--bg-body);
+}
+[data-theme='dreamcloud'] .settings-safety-hint,
+body.theme-dreamcloud .settings-safety-hint {
+  background: var(--chip-bg);
+  border-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-blindness-val,
+body.theme-dreamcloud .settings-blindness-val {
+  color: var(--text-primary);
+}
+[data-theme='dreamcloud'] .settings-blindness-val.highlight,
+[data-theme='dreamcloud'] .settings-key-sync-banner.synced,
+body.theme-dreamcloud .settings-blindness-val.highlight,
+body.theme-dreamcloud .settings-key-sync-banner.synced {
+  color: #15803d;
+  text-shadow: none;
+}
+[data-theme='dreamcloud'] .settings-blindness-note,
+body.theme-dreamcloud .settings-blindness-note {
+  border-top-color: var(--border-subtle);
+}
+[data-theme='dreamcloud'] .settings-key-sync-banner.warning,
+[data-theme='dreamcloud'] .settings-status-chip.unverified,
+body.theme-dreamcloud .settings-key-sync-banner.warning,
+body.theme-dreamcloud .settings-status-chip.unverified {
+  color: var(--warning-text);
+  box-shadow: none;
+}
 [dir="rtl"] .user-list-item.active::before {
   left: auto;
   right: 0;
@@ -19024,6 +19535,96 @@ body.theme-light .settings-field select option {
   color: var(--text-inverse);
   border-color: var(--accent);
   box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.voice-attachment-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.transcript-action-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border-subtle, #94a3b8) 44%, transparent);
+}
+.transcript-inline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.transcript-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.transcript-inline-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.transcript-inline-btn,
+.transcript-inline-primary {
+  border: 1px solid color-mix(in srgb, var(--border-subtle, #94a3b8) 60%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  transition: opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+}
+.transcript-inline-btn {
+  padding: 4px 8px;
+}
+.transcript-inline-primary {
+  width: fit-content;
+  padding: 6px 10px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-inverse);
+}
+.transcript-inline-btn:hover,
+.transcript-inline-primary:hover {
+  transform: translateY(-1px);
+}
+.transcript-inline-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+.transcript-inline-text {
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-surface-alt, #f8fafc) 80%, transparent);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.transcript-inline-status,
+.transcript-inline-error {
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+.transcript-inline-status {
+  color: var(--text-secondary);
+}
+.transcript-inline-error {
+  color: #dc2626;
 }
 [dir="rtl"] .voice-player-modern,
 .message-bubble[dir="rtl"] .voice-player-modern,

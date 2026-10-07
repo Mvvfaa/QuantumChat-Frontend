@@ -59,6 +59,12 @@
   },
   "settings": {
     "title": "Einstellungen",
+    "preview": {
+      "title": "Chat-Vorschau",
+      "receivedSample": "Hey! Wie sieht das neue Design aus?",
+      "sentSample": "Sieht gestochen scharf und flüssig aus! ✨",
+      "composerPlaceholder": "Nachricht eingeben…"
+    },
     "language": {
       "title": "Sprache & Region",
       "subtitle": "Wählen Sie Ihre bevorzugte Sprache",
@@ -321,5 +327,11 @@
     "forgotPassword": "Passwort vergessen?",
     "twoFactorPrompt": "Geben Sie den 6-stelligen Code aus Ihrer Authentifikator-App ein",
     "verifyCode": "Code bestätigen"
+  },
+  "lazy": {
+    "loadFailed": "Komponente konnte nicht geladen werden",
+    "loadFailedDesc": "Ein Netzwerkfehler ist aufgetreten oder ein Update ist verfügbar.",
+    "retry": "Wiederholen",
+    "reloadPage": "Seite neu laden"
   }
 }

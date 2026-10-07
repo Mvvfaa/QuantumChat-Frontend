@@ -59,6 +59,12 @@
   },
   "settings": {
     "title": "الإعدادات",
+    "preview": {
+      "title": "معاينة الدردشة",
+      "receivedSample": "مرحباً! كيف يبدو المظهر الجديد؟",
+      "sentSample": "يبدو رائعاً وسلساً جداً! ✨",
+      "composerPlaceholder": "اكتب رسالة…"
+    },
     "language": {
       "title": "اللغة والمنطقة",
       "subtitle": "اختر لغة الواجهة",
@@ -325,5 +331,11 @@
     "forgotPassword": "هل نسيت كلمة المرور؟",
     "twoFactorPrompt": "أدخل رمز المصادقة المكون من 6 أرقام من تطبيقك",
     "verifyCode": "تأكيد الرمز"
+  },
+  "lazy": {
+    "loadFailed": "فشل تحميل العنصر",
+    "loadFailedDesc": "حدث خطأ في الشبكة أو يتوفر تحديث جديد.",
+    "retry": "إعادة المحاولة",
+    "reloadPage": "إعادة تحميل الصفحة"
   }
 }

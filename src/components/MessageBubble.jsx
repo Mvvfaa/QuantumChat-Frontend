@@ -27,6 +27,7 @@ import { detectTextDirection } from '../utils/scriptDirection.js';
 import AttachmentBubble from './AttachmentBubble.jsx';
 import GroupMessageContent from './GroupMessageContent.jsx';
 import LinkifiedText from './LinkifiedText.jsx';
+import MarkdownContent, { isAiMarkdownMessage } from './MarkdownContent.jsx';
 const MENU_GAP = 8;
 const VIEW_PAD = 12;
 
@@ -162,6 +163,7 @@ function MessageBubble({
   onOpenStory,
   onVotePoll,
   onBurnViewOnce,
+  onTranscriptStateChange,
   onShowInfo,
   onShowEditHistory,
   onImportant,
@@ -658,6 +660,8 @@ function MessageBubble({
   (message.attachment && structured.type !== 'file' && !isStoryReply) ? (
                <AttachmentBubble
                 attachment={message.attachment}
+                message={message}
+                currentUserId={currentUserId}
                 isMine={isMine}
                 resolveSecretKey={keyResolver}
                 onImagePreview={onImagePreview}
@@ -670,6 +674,7 @@ function MessageBubble({
                 onBurnViewOnce={
                   onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
                 }
+                onTranscriptStateChange={onTranscriptStateChange}
               />
             ) : null}
             {callMeta ? (
@@ -714,6 +719,7 @@ function MessageBubble({
                 onBurnViewOnce={
                   onBurnViewOnce ? () => onBurnViewOnce(message) : undefined
                 }
+                onTranscriptStateChange={onTranscriptStateChange}
               />
             ) : isStoryReaction ? (
               <button
@@ -770,10 +776,13 @@ function MessageBubble({
                   message.attachment ? (
                     <AttachmentBubble
                       attachment={message.attachment}
+                      message={message}
+                      currentUserId={currentUserId}
                       isMine={isMine}
                       resolveSecretKey={keyResolver}
                       onImagePreview={onImagePreview}
                       onImageReady={onImageReady}
+                      onTranscriptStateChange={onTranscriptStateChange}
                     />
                   ) : (
                     <em dir="auto">[Attachment missing]</em>
@@ -799,6 +808,13 @@ function MessageBubble({
                     </span>
                   ))}
                 </span>
+              ) : isAiMarkdownMessage(message) ? (
+                <div
+                  className={`message-text message-text--markdown ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
+                  dir={detectTextDirection(message.text)}
+                >
+                  <MarkdownContent text={message.text} />
+                </div>
               ) : (
                 <span
                   className={`message-text ${detectTextDirection(message.text) === 'rtl' ? 'is-rtl' : 'is-ltr'}`}
