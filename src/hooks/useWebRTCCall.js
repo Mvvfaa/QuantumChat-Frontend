@@ -259,6 +259,19 @@ export default function useWebRTCCall({
     return stream;
   }, []);
 
+  /** Audio-only calls still need a video m-line so a peer can send camera later. */
+  const ensureVideoRecvTransceiver = useCallback((pc) => {
+    if (!pc || pc.signalingState === 'closed') return;
+    const hasVideo = pc.getTransceivers().some(
+      (t) =>
+        t.receiver?.track?.kind === 'video' ||
+        t.sender?.track?.kind === 'video',
+    );
+    if (!hasVideo) {
+      pc.addTransceiver('video', { direction: 'recvonly' });
+    }
+  }, []);
+
   /**
    * Mid-call offer/answer round. Screen-share state rides along on the offer
    * (`screen`) instead of a dedicated signal, so no new relay event is needed
@@ -408,6 +421,7 @@ export default function useWebRTCCall({
       const stream = await attachLocalMedia(c.video);
       const pc = ensurePc(c.peerId);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      if (!stream.getVideoTracks().length) ensureVideoRecvTransceiver(pc);
       await emitSealed("call:accept", {
         to: c.peerId,
         callId: c.callId,
@@ -423,7 +437,7 @@ export default function useWebRTCCall({
       endCallLocal();
       throw err;
     }
-  }, [attachLocalMedia, ensurePc, endCallLocal, emitSealed]);
+  }, [attachLocalMedia, ensurePc, ensureVideoRecvTransceiver, endCallLocal, emitSealed]);
 
   const rejectCall = useCallback(() => {
     const c = callRef.current;
@@ -478,6 +492,7 @@ export default function useWebRTCCall({
         t.enabled = true;
       });
       setCameraOff(false);
+      setCall((prev) => (prev ? { ...prev, video: true } : prev));
       return;
     }
 
@@ -498,11 +513,25 @@ export default function useWebRTCCall({
 
       const pc = pcRef.current;
       if (pc && pc.signalingState !== 'closed') {
-        const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-        if (sender) {
-          await sender.replaceTrack(vTrack);
+        // Prefer an existing video transceiver (incl. recvonly from audio-only
+        // setup) so we don't create a second m-line the peer can't display.
+        let videoTransceiver = pc.getTransceivers().find(
+          (t) =>
+            t.receiver?.track?.kind === 'video' ||
+            t.sender?.track?.kind === 'video',
+        );
+        if (!videoTransceiver) {
+          videoTransceiver = pc.addTransceiver(vTrack, {
+            direction: 'sendrecv',
+            streams: [stream],
+          });
         } else {
-          pc.addTrack(vTrack, stream);
+          try {
+            videoTransceiver.direction = 'sendrecv';
+          } catch {
+            /* ignore */
+          }
+          await videoTransceiver.sender.replaceTrack(vTrack).catch(() => {});
         }
         await renegotiateRef.current?.({ video: true });
       }
@@ -570,6 +599,7 @@ export default function useWebRTCCall({
         const stream = await attachLocalMedia(c.video);
         const pc = ensurePc(c.peerId);
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        if (!stream.getVideoTracks().length) ensureVideoRecvTransceiver(pc);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         await emitSealed("call:offer", {
@@ -613,10 +643,14 @@ export default function useWebRTCCall({
       if (!localStreamRef.current) {
         const stream = await attachLocalMedia(c.video);
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        if (!stream.getVideoTracks().length) ensureVideoRecvTransceiver(pc);
       } else if (pc.getSenders().every((s) => !s.track)) {
         localStreamRef.current
           .getTracks()
           .forEach((track) => pc.addTrack(track, localStreamRef.current));
+        if (!localStreamRef.current.getVideoTracks().length) {
+          ensureVideoRecvTransceiver(pc);
+        }
       }
       await pc.setRemoteDescription(new RTCSessionDescription(body.sdp));
       await flushIce(pc);
@@ -633,6 +667,10 @@ export default function useWebRTCCall({
         },
       });
       if (typeof body.screen === "boolean") setRemoteScreen(body.screen);
+      // Peer turned camera on mid-call — mark video so UI/status update.
+      if (body.renegotiation && body.video) {
+        setCall((prev) => (prev ? { ...prev, video: true } : prev));
+      }
       // A renegotiation mid-call must not knock an active call back to
       // "connecting" or restart its duration clock.
       if (body.renegotiation) return;
@@ -724,7 +762,7 @@ export default function useWebRTCCall({
         socket?.off(eventName, handler);
       }
     };
-  }, [userId, attachLocalMedia, ensurePc, endCallLocal, hangup, emitSealed]);
+  }, [userId, attachLocalMedia, ensurePc, ensureVideoRecvTransceiver, endCallLocal, hangup, emitSealed]);
 
   useEffect(() => {
     if (!call || (call.status !== "ringing" && call.status !== "incoming")) {

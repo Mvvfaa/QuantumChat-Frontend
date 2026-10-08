@@ -397,11 +397,23 @@ export default function useMeetingCall({ userId, resolveGroupMembers, onEnd } = 
 
       for (const [peerId, pc] of pcMapRef.current.entries()) {
         if (pc.signalingState === 'closed') continue;
-        const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-        if (sender) {
-          await sender.replaceTrack(vTrack).catch(() => {});
+        let videoTransceiver = pc.getTransceivers().find(
+          (t) =>
+            t.receiver?.track?.kind === 'video' ||
+            t.sender?.track?.kind === 'video',
+        );
+        if (!videoTransceiver) {
+          videoTransceiver = pc.addTransceiver(vTrack, {
+            direction: 'sendrecv',
+            streams: [stream],
+          });
         } else {
-          pc.addTrack(vTrack, stream);
+          try {
+            videoTransceiver.direction = 'sendrecv';
+          } catch {
+            /* ignore */
+          }
+          await videoTransceiver.sender.replaceTrack(vTrack).catch(() => {});
         }
         try {
           const offer = await pc.createOffer();
@@ -410,6 +422,7 @@ export default function useMeetingCall({ userId, resolveGroupMembers, onEnd } = 
             type: 'offer',
             callId: meetingRef.current?.meetingId,
             sdp: offer,
+            video: true,
           });
         } catch {
           /* ignore re-offer errors */

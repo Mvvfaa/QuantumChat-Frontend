@@ -263,8 +263,18 @@ export default function CallOverlay({
   const isRinging = call?.status === 'ringing';
   const isActive = call?.status === 'active';
   const inMedia = call?.status === 'connecting' || isActive;
-  const showsRemoteVideo = inMedia && (call?.video || remoteScreen);
+  // Show remote video whenever the peer is actually sending a live video
+  // track (or screen). Do NOT require call.video — that flag is local and
+  // stayed false on voice calls even after the other person turned a camera on.
+  const hasRemoteLiveVideo = Boolean(
+    remoteStream?.getVideoTracks?.().some((t) => t.readyState === 'live'),
+  );
+  const hasLocalLiveVideo = Boolean(
+    !cameraOff && localStream?.getVideoTracks?.().some((t) => t.readyState === 'live'),
+  );
+  const showsRemoteVideo = inMedia && (hasRemoteLiveVideo || remoteScreen);
   const showsOwnScreenOnly = inMedia && screenSharing && !showsRemoteVideo;
+  const showsLocalPip = showsRemoteVideo && (hasLocalLiveVideo || screenSharing);
   const showsVideo = showsRemoteVideo || showsOwnScreenOnly;
   const canShareScreen =
     typeof onToggleScreenShare === 'function' &&
@@ -589,7 +599,7 @@ export default function CallOverlay({
             ) : (
               <VideoTile stream={screenStream} muted contain label="Your screen" />
             )}
-            {showsRemoteVideo && (call.video || screenSharing) ? (
+            {showsLocalPip ? (
               <div className="call-pip">
                 {screenSharing ? (
                   <VideoTile stream={screenStream} muted contain label="Your screen" />
