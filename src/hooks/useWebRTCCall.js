@@ -7,6 +7,11 @@ import {
   registerSignalHandlers,
   unsealCallEnvelope,
 } from "../utils/callSignalTransport.js";
+import {
+  currentTrackDeviceId,
+  getCallMedia,
+  listInputDevices,
+} from "../utils/callMedia.js";
 import { startDialingSound } from "../utils/sounds.js";
 
 const ICE_RESTART_FAILSAFE_MS = 10_000;
@@ -30,6 +35,14 @@ export default function useWebRTCCall({
   const [remoteStream, setRemoteStream] = useState(null);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
+  const [noiseCancel, setNoiseCancelState] = useState(true);
+  const [audioDeviceId, setAudioDeviceId] = useState("");
+  const [videoDeviceId, setVideoDeviceId] = useState("");
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [videoDevices, setVideoDevices] = useState([]);
+  const noiseCancelRef = useRef(true);
+  const audioDeviceIdRef = useRef("");
+  const videoDeviceIdRef = useRef("");
   const [screenStream, setScreenStream] = useState(null);
   const [remoteScreen, setRemoteScreen] = useState(false);
   const screenStreamRef = useRef(null);
@@ -57,6 +70,39 @@ export default function useWebRTCCall({
   useEffect(() => {
     callRef.current = call;
   }, [call]);
+
+  useEffect(() => {
+    noiseCancelRef.current = noiseCancel;
+  }, [noiseCancel]);
+  useEffect(() => {
+    audioDeviceIdRef.current = audioDeviceId;
+  }, [audioDeviceId]);
+  useEffect(() => {
+    videoDeviceIdRef.current = videoDeviceId;
+  }, [videoDeviceId]);
+
+  const refreshDevices = useCallback(async () => {
+    try {
+      const { audioInputs, videoInputs } = await listInputDevices();
+      setAudioDevices(audioInputs);
+      setVideoDevices(videoInputs);
+      return { audioInputs, videoInputs };
+    } catch {
+      return { audioInputs: [], videoInputs: [] };
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!call) return undefined;
+    refreshDevices();
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener) return undefined;
+    const onChange = () => {
+      refreshDevices();
+    };
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
+  }, [call, refreshDevices]);
 
   const getPeerKeys = useCallback(async (peerId) => {
     const id = String(peerId);
@@ -250,14 +296,22 @@ export default function useWebRTCCall({
   );
 
   const attachLocalMedia = useCallback(async (video) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    const stream = await getCallMedia({
+      audio: true,
       video: Boolean(video),
+      audioDeviceId: audioDeviceIdRef.current || undefined,
+      videoDeviceId: videoDeviceIdRef.current || undefined,
+      noiseCancel: noiseCancelRef.current,
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
+    const aId = currentTrackDeviceId(stream, "audio");
+    const vId = currentTrackDeviceId(stream, "video");
+    if (aId) setAudioDeviceId(aId);
+    if (vId) setVideoDeviceId(vId);
+    refreshDevices().catch(() => {});
     return stream;
-  }, []);
+  }, [refreshDevices]);
 
   /** Audio-only calls still need a video m-line so a peer can send camera later. */
   const ensureVideoRecvTransceiver = useCallback((pc) => {
@@ -472,8 +526,160 @@ export default function useWebRTCCall({
     setMuted(next);
   }, [muted]);
 
+  const replaceLocalTrack = useCallback(async (kind, newTrack) => {
+    const stream = localStreamRef.current;
+    if (!stream || !newTrack) return;
+
+    const oldTracks =
+      kind === "audio" ? stream.getAudioTracks() : stream.getVideoTracks();
+    for (const old of oldTracks) {
+      if (old === newTrack) continue;
+      stream.removeTrack(old);
+      try {
+        old.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!oldTracks.includes(newTrack)) {
+      stream.addTrack(newTrack);
+    }
+    setLocalStream(new MediaStream(stream.getTracks()));
+
+    const pc = pcRef.current;
+    if (pc && pc.signalingState !== "closed") {
+      const sender = pc.getSenders().find((s) => s.track?.kind === kind);
+      if (sender) {
+        await sender.replaceTrack(newTrack).catch(() => {});
+      } else if (kind === "video") {
+        let videoTransceiver = pc.getTransceivers().find(
+          (t) =>
+            t.receiver?.track?.kind === "video" ||
+            t.sender?.track?.kind === "video",
+        );
+        if (!videoTransceiver) {
+          videoTransceiver = pc.addTransceiver(newTrack, {
+            direction: "sendrecv",
+            streams: [stream],
+          });
+        } else {
+          try {
+            videoTransceiver.direction = "sendrecv";
+          } catch {
+            /* ignore */
+          }
+          await videoTransceiver.sender.replaceTrack(newTrack).catch(() => {});
+        }
+        await renegotiateRef.current?.({ video: true });
+      }
+    }
+  }, []);
+
+  const switchAudioDevice = useCallback(
+    async (deviceId) => {
+      try {
+        const nextStream = await getCallMedia({
+          audio: true,
+          video: false,
+          audioDeviceId: deviceId || undefined,
+          noiseCancel: noiseCancelRef.current,
+        });
+        const track = nextStream.getAudioTracks()[0];
+        if (!track) return;
+        track.enabled = !muted;
+        await replaceLocalTrack("audio", track);
+        const resolved =
+          deviceId || currentTrackDeviceId(localStreamRef.current, "audio");
+        if (resolved) setAudioDeviceId(resolved);
+        refreshDevices().catch(() => {});
+      } catch (err) {
+        console.warn("[useWebRTCCall] Could not switch microphone:", err);
+        throw err;
+      }
+    },
+    [muted, refreshDevices, replaceLocalTrack],
+  );
+
+  const switchVideoDevice = useCallback(
+    async (deviceId) => {
+      try {
+        const nextStream = await getCallMedia({
+          audio: false,
+          video: true,
+          videoDeviceId: deviceId || undefined,
+        });
+        const track = nextStream.getVideoTracks()[0];
+        if (!track) return;
+
+        let stream = localStreamRef.current;
+        if (!stream) {
+          stream = new MediaStream([track]);
+          localStreamRef.current = stream;
+          setLocalStream(stream);
+
+          const pc = pcRef.current;
+          if (pc && pc.signalingState !== "closed") {
+            let videoTransceiver = pc.getTransceivers().find(
+              (t) =>
+                t.receiver?.track?.kind === "video" ||
+                t.sender?.track?.kind === "video",
+            );
+            if (!videoTransceiver) {
+              videoTransceiver = pc.addTransceiver(track, {
+                direction: "sendrecv",
+                streams: [stream],
+              });
+            } else {
+              try {
+                videoTransceiver.direction = "sendrecv";
+              } catch {
+                /* ignore */
+              }
+              await videoTransceiver.sender.replaceTrack(track).catch(() => {});
+            }
+            await renegotiateRef.current?.({ video: true });
+          }
+        } else {
+          track.enabled = true;
+          await replaceLocalTrack("video", track);
+        }
+
+        const resolved =
+          deviceId || currentTrackDeviceId(localStreamRef.current, "video");
+        if (resolved) setVideoDeviceId(resolved);
+        setCameraOff(false);
+        setCall((prev) => (prev ? { ...prev, video: true } : prev));
+        refreshDevices().catch(() => {});
+      } catch (err) {
+        console.warn("[useWebRTCCall] Could not switch camera:", err);
+        throw err;
+      }
+    },
+    [refreshDevices, replaceLocalTrack],
+  );
+
+  const setNoiseCancel = useCallback(
+    async (enabled) => {
+      const next = Boolean(enabled);
+      setNoiseCancelState(next);
+      noiseCancelRef.current = next;
+      const stream = localStreamRef.current;
+      if (!stream?.getAudioTracks()?.length) return;
+      try {
+        await switchAudioDevice(
+          audioDeviceIdRef.current ||
+            currentTrackDeviceId(stream, "audio") ||
+            "",
+        );
+      } catch {
+        /* keep preference even if re-acquire fails mid-call */
+      }
+    },
+    [switchAudioDevice],
+  );
+
   const toggleCamera = useCallback(async () => {
-    let stream = localStreamRef.current;
+    const stream = localStreamRef.current;
     const turningOff = !cameraOff;
 
     if (turningOff) {
@@ -486,8 +692,8 @@ export default function useWebRTCCall({
       return;
     }
 
-    // Turning camera ON
-    if (stream && stream.getVideoTracks().some((t) => t.readyState === 'live')) {
+    // Turning camera ON — reuse a live track when possible.
+    if (stream && stream.getVideoTracks().some((t) => t.readyState === "live")) {
       stream.getVideoTracks().forEach((t) => {
         t.enabled = true;
       });
@@ -496,53 +702,13 @@ export default function useWebRTCCall({
       return;
     }
 
-    // No existing live video track — acquire one dynamically
     try {
-      const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      const vTrack = vStream.getVideoTracks()[0];
-      if (!vTrack) return;
-
-      if (!stream) {
-        stream = new MediaStream([vTrack]);
-        localStreamRef.current = stream;
-      } else {
-        stream.addTrack(vTrack);
-      }
-
-      setLocalStream(new MediaStream(stream.getTracks()));
-
-      const pc = pcRef.current;
-      if (pc && pc.signalingState !== 'closed') {
-        // Prefer an existing video transceiver (incl. recvonly from audio-only
-        // setup) so we don't create a second m-line the peer can't display.
-        let videoTransceiver = pc.getTransceivers().find(
-          (t) =>
-            t.receiver?.track?.kind === 'video' ||
-            t.sender?.track?.kind === 'video',
-        );
-        if (!videoTransceiver) {
-          videoTransceiver = pc.addTransceiver(vTrack, {
-            direction: 'sendrecv',
-            streams: [stream],
-          });
-        } else {
-          try {
-            videoTransceiver.direction = 'sendrecv';
-          } catch {
-            /* ignore */
-          }
-          await videoTransceiver.sender.replaceTrack(vTrack).catch(() => {});
-        }
-        await renegotiateRef.current?.({ video: true });
-      }
-
-      setCall((prev) => (prev ? { ...prev, video: true } : prev));
-      setCameraOff(false);
+      await switchVideoDevice(videoDeviceIdRef.current || "");
     } catch (err) {
-      console.warn('[useWebRTCCall] Could not enable camera:', err);
+      console.warn("[useWebRTCCall] Could not enable camera:", err);
       throw err;
     }
-  }, [cameraOff]);
+  }, [cameraOff, switchVideoDevice]);
 
   useEffect(() => {
     const socket = getSocket();
@@ -799,12 +965,21 @@ export default function useWebRTCCall({
     remoteScreen,
     muted,
     cameraOff,
+    noiseCancel,
+    audioDeviceId,
+    videoDeviceId,
+    audioDevices,
+    videoDevices,
     startCall,
     acceptCall,
     rejectCall,
     hangup,
     toggleMute,
     toggleCamera,
+    switchAudioDevice,
+    switchVideoDevice,
+    setNoiseCancel,
+    refreshDevices,
     startScreenShare,
     stopScreenShare,
     toggleScreenShare,
