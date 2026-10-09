@@ -6194,11 +6194,15 @@ input:focus-visible,
 .message-bubble:has(.voice-player) .message-time,
 .message-bubble:has(.story-reply-quote) .message-time {
   float: none;
+  position: static;
   display: flex;
   justify-content: flex-end;
   margin: 6px 0 0;
-  top: 0;
   clear: both;
+}
+
+.message-bubble:has(.story-reply-quote) .message-time-spacer {
+  display: none;
 }
 
 .message-text {
@@ -8102,7 +8106,7 @@ input:focus-visible,
   margin-bottom: 8px;
   border-left: 3px solid var(--accent);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.12);
+  background: var(--accent-muted, rgba(255, 255, 255, 0.35));
 }
 
 .story-viewers-btn,
@@ -8184,7 +8188,7 @@ input:focus-visible,
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-muted);
+  background: rgba(255, 255, 255, 0.55);
   color: var(--accent);
 }
 
@@ -9111,7 +9115,9 @@ body.theme-light .story-reaction-picker {
 }
 .story-reply-quote-clickable {
   cursor: pointer;
-  border: none;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
   width: 100%;
   text-align: left;
   font: inherit;
@@ -12805,6 +12811,9 @@ button.message-reply-preview:hover {
   gap: 14px;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 2;
 }
 
 .call-ctrl {
@@ -12832,6 +12841,115 @@ button.message-reply-preview:hover {
 .call-ctrl.hangup {
   background: var(--danger, #dc2626);
   color: #fff;
+}
+
+.call-device-control {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
+}
+
+.call-device-control .call-ctrl {
+  width: 48px;
+  height: 48px;
+  background: transparent;
+  border-radius: 999px 0 0 999px;
+}
+
+.call-device-control .call-ctrl.active {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.call-ctrl-caret {
+  width: 22px;
+  border: none;
+  border-left: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
+  border-radius: 0 999px 999px 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 0;
+}
+
+.call-ctrl-caret.active,
+.call-device-control.is-open .call-ctrl-caret {
+  color: var(--accent);
+}
+
+.call-device-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 240px;
+  max-width: min(320px, 80vw);
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-elevated) 96%, #000 4%);
+  color: var(--text-primary);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+  z-index: 5;
+}
+
+.call-device-menu-title {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.65;
+  padding: 4px 8px 8px;
+}
+
+.call-device-menu-empty {
+  font-size: 13px;
+  opacity: 0.7;
+  padding: 8px;
+}
+
+.call-device-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.call-device-menu-item:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.call-device-menu-item.is-selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.call-device-menu-toggle {
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--text-primary) 10%, transparent);
+  border-radius: 0 0 10px 10px;
+  padding-top: 10px;
+}
+
+.call-device-menu-check {
+  width: 14px;
+  flex: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .meeting-overlay {

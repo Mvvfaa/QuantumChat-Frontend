@@ -7837,6 +7837,26 @@ useEffect(() => {
             showToast("Could not share your screen", "error");
           })
         }
+        audioDevices={webrtc.audioDevices}
+        videoDevices={webrtc.videoDevices}
+        audioDeviceId={webrtc.audioDeviceId}
+        videoDeviceId={webrtc.videoDeviceId}
+        noiseCancel={webrtc.noiseCancel}
+        onSwitchAudioDevice={(id) =>
+          webrtc.switchAudioDevice(id).catch(() =>
+            showToast("Could not switch microphone", "error"),
+          )
+        }
+        onSwitchVideoDevice={(id) =>
+          webrtc.switchVideoDevice(id).catch(() =>
+            showToast("Could not switch camera", "error"),
+          )
+        }
+        onSetNoiseCancel={(enabled) =>
+          webrtc.setNoiseCancel(enabled).catch(() =>
+            showToast("Could not update noise cancellation", "error"),
+          )
+        }
         minimized={callMinimized}
         onToggleMinimize={(next) =>
           setCallMinimized((v) => (typeof next === "boolean" ? next : !v))
@@ -7869,6 +7889,26 @@ useEffect(() => {
               onEndForAll={meetingCall.endMeetingForAll}
               onToggleMute={meetingCall.toggleMute}
               onToggleCamera={meetingCall.toggleCamera}
+              audioDevices={meetingCall.audioDevices}
+              videoDevices={meetingCall.videoDevices}
+              audioDeviceId={meetingCall.audioDeviceId}
+              videoDeviceId={meetingCall.videoDeviceId}
+              noiseCancel={meetingCall.noiseCancel}
+              onSwitchAudioDevice={(id) =>
+                meetingCall.switchAudioDevice(id).catch(() =>
+                  showToast("Could not switch microphone", "error"),
+                )
+              }
+              onSwitchVideoDevice={(id) =>
+                meetingCall.switchVideoDevice(id).catch(() =>
+                  showToast("Could not switch camera", "error"),
+                )
+              }
+              onSetNoiseCancel={(enabled) =>
+                meetingCall.setNoiseCancel(enabled).catch(() =>
+                  showToast("Could not update noise cancellation", "error"),
+                )
+              }
               onOpenAddParticipant={() => setShowAddParticipantModal(true)}
             />
           </Suspense>
