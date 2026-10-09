@@ -6619,8 +6619,7 @@ useEffect(() => {
           navigate("/chat/settings");
         }}
         onLogout={handleLogout}
-         onMarkAllRead={handleMarkAllRead}
-        unreadNotificationCount={unreadNotificationCount}
+        onMarkAllRead={handleMarkAllRead}
         vaultEnabled={vaultEnabled}
         vaultUnlocked={vaultUnlocked}
         onOpenVault={() => {
@@ -6643,6 +6642,7 @@ useEffect(() => {
           showToast(text, 'error');
         }}
         notifSettings={notifSettings}
+        unreadNotificationCount={unreadNotificationCount}
         search={search}
         onSearchChange={setSearch}
         conversations={conversations}
