@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
+import { getDisplayName } from '../../utils/getDisplayName.js';
 import BrandLogo from '../BrandLogo.jsx';
 import ConversationList from '../ConversationList.jsx';
 import NotificationPermissionBanner from '../NotificationPermissionBanner.jsx';
 import SidebarMenu from '../SidebarMenu.jsx';
 import StoriesRail from '../StoriesRail.jsx';
-import { getDisplayName } from '../../utils/getDisplayName.js';
 
 /**
  * Left conversation pane — list, filters, stories.
@@ -61,6 +61,7 @@ export default function ConversationPane({
   onOpenFriend,
   onlineUserIds,  
   onOpenStarred,
+  unreadNotificationCount = 0,
 }) {
   const { t, i18n } = useTranslation();
 
@@ -91,6 +92,7 @@ export default function ConversationPane({
             vaultEnabled={vaultEnabled}
             vaultUnlocked={vaultUnlocked}
             onOpenVault={onOpenVault}
+            unreadNotificationCount={unreadNotificationCount}
           />
           </div>
         </div>

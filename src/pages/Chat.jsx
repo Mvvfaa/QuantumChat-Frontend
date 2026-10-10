@@ -25,6 +25,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { streamQuantumAI } from "../api/aiClient.js";
 import { fetchChatTheme, fetchGroupChatTheme, fetchGroupWallpaperImageUrl, fetchThemeCatalog, fetchWallpaperImageUrl } from '../api/chatThemes.js';
 import client, { muteChat, unmuteChat } from "../api/client.js";
+import { getUnreadCount as fetchUnreadNotificationCount } from "../api/notifications.js";
 import { postPresenceHeartbeat } from "../api/presence.js";
 import { connectSocket, getSocket } from "../api/socket.js";
 import { getPeerVaultDecoyStatus } from "../api/vault.js";
@@ -43,6 +44,7 @@ import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import DateSeparator from "../components/DateSeparator.jsx";
 import DragDropOverlay from "../components/DragDropOverlay.jsx";
 import EmojiPicker from "../components/EmojiPicker.jsx";
+import LazyChunkErrorBoundary, { ModalLoadingFallback, PanelLoadingFallback } from "../components/LazyChunkErrorBoundary.jsx";
 import MessageSearch from "../components/MessageSearch.jsx";
 import { useToast } from "../components/ToastProvider.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
@@ -50,25 +52,6 @@ import BottomSheet from "../components/ui/BottomSheet.jsx";
 import UserAvatar from "../components/UserAvatar.jsx";
 import VaultSetupModal from "../components/VaultSetupModal.jsx";
 import VaultUnlockModal from "../components/VaultUnlockModal.jsx";
-import LazyChunkErrorBoundary, { ModalLoadingFallback, PanelLoadingFallback } from "../components/LazyChunkErrorBoundary.jsx";
-import { preload, preloadOnIdle } from "../utils/preload.js";
-
-const AIAssistantPanel = lazy(() => import("../components/AIAssistantPanel.jsx"));
-const CameraCapture = lazy(() => import("../components/CameraCapture.jsx"));
-const ChatMediaModal = lazy(() => import("../components/chat/ChatMediaModal.jsx"));
-const ChatThemeModal = lazy(() => import("../components/ChatThemeModal.jsx"));
-const CreateGroupModal = lazy(() => import("../components/CreateGroupModal.jsx"));
-const EditHistoryModal = lazy(() => import("../components/EditHistoryModal.jsx"));
-const ForwardModal = lazy(() => import("../components/ForwardModal.jsx"));
-const GroupSettingsModal = lazy(() => import("../components/GroupSettingsModal.jsx"));
-const GroupCommandCenter = lazy(() => import("../components/GroupCommandCenter.jsx"));
-const ImageLightbox = lazy(() => import("../components/ImageLightbox.jsx"));
-const MeetingOverlay = lazy(() => import("../components/MeetingOverlay.jsx"));
-const MessageInfoModal = lazy(() => import("../components/MessageInfoModal.jsx"));
-const SettingsModal = lazy(() => import("../components/SettingsModal.jsx"));
-const StarredMessagesModal = lazy(() => import("../components/StarredMessagesModal.jsx"));
-const TimeCapsuleModal = lazy(() => import("../components/TimeCapsuleModal.jsx"));
-const UserProfileModal = lazy(() => import("../components/UserProfileModal.jsx"));
 import { useAuth } from "../context/AuthContext.jsx";
 import { useNotificationSettings } from "../context/NotificationSettingsContext.jsx";
 import { useVault } from "../context/VaultContext.jsx";
@@ -98,13 +81,6 @@ import { useScreenshotProtection } from "../hooks/useScreenshotProtection.js";
 import useWebRTCCall from "../hooks/useWebRTCCall.js";
 import { getWallpaperBackground, getWallpaperFx, preloadWallpaper } from '../theme/wallpaperBackgrounds.js';
 import activityStore from "../utils/activityStore.js";
-import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia, updateOfflineMedia } from "../utils/offlineMediaQueue.js";
-import {
-  getAllOfflineMessages,
-  getOfflineMessages,
-  removeOfflineMessage,
-  saveOfflineMessage,
-} from "../utils/offlineMessageQueue.js";
 import {
   getArchivedChatKeys,
   getChatDraft,
@@ -124,6 +100,7 @@ import {
   selectionFromParams,
 } from "../utils/chatRoutes.js";
 import { updateFaviconBadge } from "../utils/faviconBadge.js";
+import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { getDisplayName } from "../utils/getDisplayName.js";
 import {
   encodeAnnouncement,
@@ -139,6 +116,9 @@ import {
   unhideChat,
 } from "../utils/hiddenChats.js";
 import {
+  getAutomaticImportantSource
+} from "../utils/importantMessages.js";
+import {
   clearAllStarred,
   clearAutoImportantRemoval,
   deleteMessageForMe,
@@ -152,10 +132,6 @@ import {
   togglePinnedMessage,
   toggleStarredMessage,
 } from "../utils/messageExtras.js";
-import {
-  getAutomaticImportantSource,
-  isAutomaticImportantMessage,
-} from "../utils/importantMessages.js";
 import { getMessagePreviewText } from "../utils/messagePreview.js";
 import {
   buildGroupedNotificationText,
@@ -163,6 +139,14 @@ import {
   shouldNotify,
   showNotificationPopup
 } from "../utils/notificationDispatch.js";
+import { getOfflineMedia, removeOfflineMedia, saveOfflineMedia, updateOfflineMedia } from "../utils/offlineMediaQueue.js";
+import {
+  getAllOfflineMessages,
+  getOfflineMessages,
+  removeOfflineMessage,
+  saveOfflineMessage,
+} from "../utils/offlineMessageQueue.js";
+import { preload, preloadOnIdle } from "../utils/preload.js";
 import { enablePushNotifications } from "../utils/pushNotifications.js";
 import {
   conversationKeyForGroup,
@@ -175,8 +159,24 @@ import {
   setConversationActivity,
 } from "../utils/readState.js";
 import { shouldEnforceScreenshotProtection } from "../utils/screenshotProtection.js";
-import { formatLastSeen } from "../utils/formatLastSeen.js";
 import { playReceiveSound, playSendSound, startIncomingRingSound, unlockAudio } from "../utils/sounds.js";
+
+const AIAssistantPanel = lazy(() => import("../components/AIAssistantPanel.jsx"));
+const CameraCapture = lazy(() => import("../components/CameraCapture.jsx"));
+const ChatMediaModal = lazy(() => import("../components/chat/ChatMediaModal.jsx"));
+const ChatThemeModal = lazy(() => import("../components/ChatThemeModal.jsx"));
+const CreateGroupModal = lazy(() => import("../components/CreateGroupModal.jsx"));
+const EditHistoryModal = lazy(() => import("../components/EditHistoryModal.jsx"));
+const ForwardModal = lazy(() => import("../components/ForwardModal.jsx"));
+const GroupSettingsModal = lazy(() => import("../components/GroupSettingsModal.jsx"));
+const GroupCommandCenter = lazy(() => import("../components/GroupCommandCenter.jsx"));
+const ImageLightbox = lazy(() => import("../components/ImageLightbox.jsx"));
+const MeetingOverlay = lazy(() => import("../components/MeetingOverlay.jsx"));
+const MessageInfoModal = lazy(() => import("../components/MessageInfoModal.jsx"));
+const SettingsModal = lazy(() => import("../components/SettingsModal.jsx"));
+const StarredMessagesModal = lazy(() => import("../components/StarredMessagesModal.jsx"));
+const TimeCapsuleModal = lazy(() => import("../components/TimeCapsuleModal.jsx"));
+const UserProfileModal = lazy(() => import("../components/UserProfileModal.jsx"));
 
 const DEFAULT_CHAT_THEME = { presetId: 'default', bubbleColorId: 'default', wallpaperId: 'none' };
 
@@ -443,6 +443,28 @@ export default function Chat() {
   const searchDebounceRef = useRef(null);
   const draftConversationKeyRef = useRef(null);
   const draftReadyConversationKeyRef = useRef(null);
+  const hasShownUnreadPopupRef = useRef(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+useEffect(() => {
+  if (!user?.id) return;
+  let active = true;
+  fetchUnreadNotificationCount()
+    .then((count) => {
+      if (!active) return;
+      setUnreadNotificationCount(count);
+      if (count > 0 && !hasShownUnreadPopupRef.current) {
+        hasShownUnreadPopupRef.current = true;
+        showToast(
+          `You have ${count} unread ${count === 1 ? 'update' : 'updates'} — check all the unread activities`,
+          'info',
+          8000,
+          { actionLabel: 'View Activity', onAction: () => navigate('/chat/activity') }
+        );
+      }
+    })
+    .catch(() => {});
+  return () => { active = false; };
+}, [user?.id, location.pathname]);
 
   useEffect(() => {
     if (
@@ -2469,6 +2491,8 @@ useEffect(() => {
     socket.on("group:new", handleGroupNew);
     socket.on("group:updated", handleGroupUpdated);
     socket.on("group:deleted", handleGroupDeleted);
+    socket.on("mention:new", handleMentionNew);
+    socket.on("notification:new", () => setUnreadNotificationCount((n) => n + 1));
     socket.on("message:poll", handlePollUpdate);
     socket.on("mention:new", handleMentionNew);
     socket.on("typing:start", handleTypingStart);
@@ -2503,6 +2527,8 @@ useEffect(() => {
       socket.off("message:edited", handleEdited);
       socket.off("message:view-once-opened", handleViewOnceOpened);
       socket.off("group:new", handleGroupNew);
+      socket.off("mention:new", handleMentionNew);
+      socket.off("notification:new");
       socket.off("group:updated", handleGroupUpdated);
       socket.off("group:deleted", handleGroupDeleted);
       socket.off("message:poll", handlePollUpdate);
@@ -3615,10 +3641,18 @@ useEffect(() => {
   function handleBackToList() {
     applyConversationSelection(null, { syncUrl: true });
   }
-  async function handleMarkAllRead() {
+    async function handleMarkAllRead() {
+    if (unreadNotificationCount > 0) {
+      markAllNotificationsRead()
+        .then(() => setUnreadNotificationCount(0))
+        .catch(() => {});
+    }
+
     const unreadConvos = conversations.filter((c) => c.unread);
     if (!unreadConvos.length) {
-      showToast("No unread conversations", "info");
+      if (unreadNotificationCount === 0) {
+        showToast("No unread conversations", "info");
+      }
       return;
     }
 
@@ -6608,6 +6642,7 @@ useEffect(() => {
           showToast(text, 'error');
         }}
         notifSettings={notifSettings}
+        unreadNotificationCount={unreadNotificationCount}
         search={search}
         onSearchChange={setSearch}
         conversations={conversations}
