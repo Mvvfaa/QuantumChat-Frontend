@@ -32,6 +32,9 @@ export default function ConversationPane({
   selectedKey,
   onSelect,
   onCreateGroup,
+  liveStreams = [],
+  onGoLive,
+  onWatchLive,
   onDiscoverJoin,
   onHide,
   onBlock,
@@ -39,6 +42,11 @@ export default function ConversationPane({
   onArchive,
   onPin,
   onToggleVault,
+  chatFolders = [],
+  onCreateFolder,
+  onEditFolder,
+  onToggleChatInFolder,
+  onToggleChatLock,
   loadingUsers,
     hasMoreContacts,
   onLoadMoreContacts,
@@ -107,6 +115,9 @@ export default function ConversationPane({
               users={users}
               onError={onStoriesError}
               notifSettings={notifSettings}
+              liveStreams={liveStreams}
+              onGoLive={onGoLive}
+              onWatchLive={onWatchLive}
             />
             <div className="sidebar-search">
               <input
@@ -134,6 +145,11 @@ export default function ConversationPane({
             onArchive={onArchive}
             onPin={onPin}
             onToggleVault={onToggleVault}
+            onToggleChatLock={onToggleChatLock}
+            chatFolders={chatFolders}
+            onCreateFolder={onCreateFolder}
+            onEditFolder={onEditFolder}
+            onToggleChatInFolder={onToggleChatInFolder}
             loading={loadingUsers}
             searchQuery={search}
             friendCandidates={friendCandidates}

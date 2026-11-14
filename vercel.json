@@ -1,13 +1,13 @@
 {
   "build": {
     "env": {
-      "VITE_API_URL": "https://quantum-chat-backend-six.vercel.app"
+      "VITE_API_URL": "https://quantum-chat-backend.vercel.app"
     }
   },
   "rewrites": [
     {
       "source": "/quantum-ai/:path*",
-      "destination": "https://quantum-ai-backend-six.vercel.app/api/v1/:path*"
+      "destination": "https://ai.quantumlogicslimited.com/api/v1/:path*"
     },
     {
       "source": "/((?!assets/|logo\\.png|manifest\\.webmanifest|theme-init\\.js|sw\\.js).*)",
@@ -34,7 +34,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
         },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
