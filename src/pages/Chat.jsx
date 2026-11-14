@@ -122,6 +122,8 @@ import {
   isGroupAdmin,
   preferConfirmedThreadText,
 } from "../utils/groupPayload.js";
+import useOnboardingTour from "../hooks/useOnboardingTour.js";
+
 import {
   getHiddenChatIds,
   hideChat,
@@ -327,6 +329,11 @@ export default function Chat() {
   const [editingMessage, setEditingMessage] = useState(null);
   const [importError, setImportError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { startTour, replayTour } = useOnboardingTour({
+    onEnsureSidebarOpen: () => setSidebarOpen(true),
+    onEnsureSidebarClose: () => setSidebarOpen(false),
+  });
+
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -5206,6 +5213,7 @@ useEffect(() => {
         onMarkAllRead={handleMarkAllRead}
         vaultEnabled={vaultEnabled}
         vaultUnlocked={vaultUnlocked}
+        onReplayTour={replayTour}
         onOpenVault={() => {
           if (!vaultEnabled) {
             setShowVaultSetup(true);
@@ -5314,6 +5322,7 @@ useEffect(() => {
 
       <main
         className="chat-main"
+        data-tour="chat-main"
         onDragEnter={
           canChat &&
             selected &&
@@ -6258,6 +6267,7 @@ useEffect(() => {
                     >
                       <button
                         type="button"
+                        data-tour="composer-actions"
                         className={`attach-button ${composerPlusOpen ? "active" : ""}`}
                         onClick={() => setComposerPlusOpen(true)}
                         aria-label="More message actions"
@@ -6284,6 +6294,7 @@ useEffect(() => {
                       />
                       <textarea
                         ref={textareaRef}
+                        data-tour="composer-input"
                         dir="auto"
                         placeholder={
                           voiceRecorder.sending
@@ -6937,6 +6948,7 @@ useEffect(() => {
               onImportKeys={handleImportKeyFile}
               onGenerateKeys={requestGenerateKeys}
               onUserUpdated={updateSessionUser}
+              onReplayTour={replayTour}
               onLogout={() => {
                 setShowSettings(false);
                 handleLogout();

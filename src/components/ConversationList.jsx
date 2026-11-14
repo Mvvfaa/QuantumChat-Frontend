@@ -688,7 +688,7 @@ export default function ConversationList({
   );
 
   return (
-    <div className="conversation-panel" ref={panelRef}>
+    <div className="conversation-panel" ref={panelRef} data-tour="chat-list">
       <div className="sidebar-filters-wrap">
         <button
           type="button"
@@ -781,6 +781,7 @@ export default function ConversationList({
         </button>
       </div>
 
+
       {folderMenuPos
         ? createPortal(
             <div
@@ -834,7 +835,7 @@ export default function ConversationList({
           )
         : null}
 
-      <div className="sidebar-create-row">
+      <div className="sidebar-create-row" data-tour="new-chat-btn">
         <button type="button" className="create-group-btn" onClick={onCreateGroup}>
           <UserPlus size={16} strokeWidth={2} aria-hidden="true" />
           {t('nav.newChat', 'New group')}
