@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Cake, CheckCheck, Clock, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
+import { Cake, CheckCheck, Clock, Compass, Lock, LogOut, MoreVertical, Settings, Star, Unlock } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -33,6 +33,7 @@ export default function SidebarMenu({
   vaultUnlocked,
   onOpenVault,
   unreadNotificationCount = 0,
+  onReplayTour,
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -59,7 +60,7 @@ export default function SidebarMenu({
   }, [open]);
 
   return (
-    <div className="sidebar-menu" ref={rootRef}>
+    <div className="sidebar-menu" ref={rootRef} data-tour="profile-menu">
       <motion.button
         type="button"
         className={`sidebar-menu-trigger ${open ? 'open' : ''}`}
@@ -197,6 +198,26 @@ export default function SidebarMenu({
               </button>
 
             <div className="sidebar-menu-divider" />
+
+            {onReplayTour && (
+              <>
+                <button
+                  type="button"
+                  className="sidebar-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpen(false);
+                    onReplayTour?.();
+                  }}
+                >
+                  <span className="sidebar-menu-item-left">
+                    <Compass size={16} aria-hidden="true" />
+                    <span>{t('nav.replayTour', 'Product Walkthrough')}</span>
+                  </span>
+                </button>
+                <div className="sidebar-menu-divider" />
+              </>
+            )}
 
             <button
               type="button"

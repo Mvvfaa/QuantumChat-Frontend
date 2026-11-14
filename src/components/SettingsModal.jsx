@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
-import { useEffect, useRef, useState } from 'react';
+import {
+  Compass, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Languages, Search } from 'lucide-react';
 import client, { getMyReferrals, unmuteChat, updatePrivacySettings } from '../api/client.js';
@@ -1623,6 +1624,28 @@ export default function SettingsModal({
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Product Tour Fieldset */}
+              <div className="settings-fieldset">
+                <h3 className="settings-section-title">
+                  <Compass size={15} aria-hidden="true" />
+                  {t('settings.tour.title', 'Product Tour')}
+                </h3>
+                <p className="settings-section-copy">
+                  {t('settings.tour.copy', 'Replay the guided walkthrough to review end-to-end encrypted messaging, conversation filters, and settings.')}
+                </p>
+                <button
+                  type="button"
+                  className="settings-btn ghost"
+                  onClick={() => {
+                    onClose?.();
+                    onReplayTour?.();
+                  }}
+                >
+                  <Compass size={14} aria-hidden="true" />
+                  {t('settings.tour.replayButton', 'Replay product walkthrough')}
+                </button>
               </div>
 
               {/* Session & Logout Fieldset */}

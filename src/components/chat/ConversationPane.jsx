@@ -62,6 +62,7 @@ export default function ConversationPane({
   onlineUserIds,  
   onOpenStarred,
   unreadNotificationCount = 0,
+  onReplayTour,
 }) {
   const { t, i18n } = useTranslation();
 
@@ -93,6 +94,7 @@ export default function ConversationPane({
             vaultUnlocked={vaultUnlocked}
             onOpenVault={onOpenVault}
             unreadNotificationCount={unreadNotificationCount}
+            onReplayTour={onReplayTour}
           />
           </div>
         </div>

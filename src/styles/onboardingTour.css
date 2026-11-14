@@ -1,0 +1,189 @@
+/* Onboarding Tour Styling - Seamlessly integrated with QuantumChat design system */
+
+/* Dimmed backdrop overlay - MUST be transparent background so SVG cutout is 100% clear */
+.driver-overlay {
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.driver-overlay path {
+  transition: d 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease;
+}
+
+/* Spotlight cutout target highlight */
+.driver-active-element {
+  outline: 2px solid var(--accent, #e8b9ae) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 4px rgba(232, 185, 174, 0.2), 0 0 20px rgba(232, 185, 174, 0.35) !important;
+  border-radius: 8px !important;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+/* Popover card styling */
+.driver-popover.qc-tour-popover {
+  background: var(--bg-surface, #231819) !important;
+  color: var(--text-primary, #f6e6d8) !important;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12)) !important;
+  border-radius: 14px !important;
+  padding: 18px 20px !important;
+  max-width: 340px !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  font-family: var(--font-sans, inherit) !important;
+  z-index: 1000000000 !important;
+  animation: qc-popover-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes qc-popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Popover Arrow */
+.driver-popover.qc-tour-popover .driver-popover-arrow-side-top {
+  border-top-color: var(--bg-surface, #231819) !important;
+}
+.driver-popover.qc-tour-popover .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--bg-surface, #231819) !important;
+}
+.driver-popover.qc-tour-popover .driver-popover-arrow-side-left {
+  border-left-color: var(--bg-surface, #231819) !important;
+}
+.driver-popover.qc-tour-popover .driver-popover-arrow-side-right {
+  border-right-color: var(--bg-surface, #231819) !important;
+}
+
+/* Title */
+.driver-popover.qc-tour-popover .driver-popover-title {
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  color: var(--text-primary, #f6e6d8) !important;
+  margin-bottom: 8px !important;
+  letter-spacing: -0.01em;
+  padding-right: 20px;
+}
+
+/* Description */
+.driver-popover.qc-tour-popover .driver-popover-description {
+  font-size: 0.88rem !important;
+  line-height: 1.45 !important;
+  color: var(--text-secondary, rgba(246, 230, 216, 0.8)) !important;
+  margin-bottom: 16px !important;
+}
+
+/* Close button (X) */
+.driver-popover.qc-tour-popover .driver-popover-close-btn {
+  top: 14px !important;
+  right: 14px !important;
+  color: var(--text-muted, rgba(246, 230, 216, 0.45)) !important;
+  font-size: 18px !important;
+  width: 24px !important;
+  height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+  transition: all 0.15s ease !important;
+}
+
+.driver-popover.qc-tour-popover .driver-popover-close-btn:hover {
+  color: var(--text-primary, #fff) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Footer layout */
+.driver-popover.qc-tour-popover .driver-popover-footer {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  margin-top: 4px !important;
+  padding-top: 12px !important;
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08)) !important;
+}
+
+/* Step progress text (e.g. "2 of 5") */
+.driver-popover.qc-tour-popover .driver-popover-progress-text {
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  color: var(--text-muted, rgba(246, 230, 216, 0.55)) !important;
+  letter-spacing: 0.02em;
+}
+
+/* Action button container */
+.driver-popover.qc-tour-popover .driver-popover-navigation-btns {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+/* Common button base */
+.driver-popover.qc-tour-popover button {
+  border-radius: 8px !important;
+  font-size: 0.82rem !important;
+  font-weight: 600 !important;
+  padding: 6px 13px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  border: 1px solid transparent !important;
+  outline: none !important;
+  font-family: inherit !important;
+}
+
+.driver-popover.qc-tour-popover button:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent, #e8b9ae) !important;
+}
+
+/* Next / Done button */
+.driver-popover.qc-tour-popover .driver-popover-next-btn {
+  background: var(--accent, #e8b9ae) !important;
+  color: #1a1214 !important;
+  border: none !important;
+}
+
+.driver-popover.qc-tour-popover .driver-popover-next-btn:hover {
+  filter: brightness(1.1) !important;
+  transform: translateY(-1px);
+}
+
+/* Back button */
+.driver-popover.qc-tour-popover .driver-popover-prev-btn {
+  background: transparent !important;
+  color: var(--text-secondary, rgba(246, 230, 216, 0.8)) !important;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.15)) !important;
+}
+
+.driver-popover.qc-tour-popover .driver-popover-prev-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-primary, #fff) !important;
+}
+
+/* Dedicated Skip button injected in footer */
+.driver-popover.qc-tour-popover .driver-popover-skip-btn {
+  background: transparent !important;
+  color: var(--text-muted, rgba(246, 230, 216, 0.55)) !important;
+  border: none !important;
+  padding: 6px 8px !important;
+  font-size: 0.8rem !important;
+  margin-right: auto !important;
+}
+
+.driver-popover.qc-tour-popover .driver-popover-skip-btn:hover {
+  color: var(--text-primary, #fff) !important;
+  text-decoration: underline;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 640px) {
+  .driver-popover.qc-tour-popover {
+    max-width: calc(100vw - 32px) !important;
+    padding: 16px !important;
+  }
+}
