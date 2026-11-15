@@ -1,9 +1,30 @@
 import UserAvatar from './UserAvatar.jsx';
 
 /**
- * TypingIndicator — bouncing dots + name(s) + overlapping avatar stack.
+ * TypingIndicator — WhatsApp-style three-dots bubble for DMs,
+ * and bouncing dots + name(s) + avatar stack for group chats.
  */
-function TypingIndicator({ isTyping, username, usernames = [] }) {
+function TypingIndicator({ isTyping, username, usernames = [], isGroup = false }) {
+  if (!isTyping && usernames.length === 0) return null;
+
+  // Direct Message (1-to-1): animated three-dots bubble without username or text
+  if (!isGroup) {
+    return (
+      <div
+        className="typing-bubble-dm"
+        role="status"
+        aria-label="typing"
+      >
+        <span className="typing-dots" aria-hidden="true">
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+          <span className="typing-dot" />
+        </span>
+      </div>
+    );
+  }
+
+  // Group chat: existing name-based indicator with multi-user handling
   const activeUsers = usernames.filter(Boolean);
   const names = activeUsers.map((user) =>
     typeof user === "string" ? user : user.username,
@@ -52,6 +73,7 @@ function TypingIndicator({ isTyping, username, usernames = [] }) {
       role="status"
       aria-label={label}
     >
+      {avatars}
       {names.length ? (
         <span className="typing-indicator-text">{label}</span>
       ) : username ? (
