@@ -1,8 +1,7 @@
 import QRCode from 'qrcode';
-import {
-  Compass, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Languages, Search, X } from 'lucide-react';
+import { Compass, Languages, Search, X } from 'lucide-react';
 import client, { getMyReferrals, unmuteChat, updatePrivacySettings } from '../api/client.js';
 
 import {
