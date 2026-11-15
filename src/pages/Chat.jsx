@@ -6029,6 +6029,7 @@ useEffect(() => {
   isTyping={peerTyping && selected.type === "dm"}
   username={selected.title}
   usernames={selected.type === "group" ? groupTypingUsers : []}
+  isGroup={selected.type === "group"}
   />
                     <div ref={bottomRef} />
                   </motion.div>
