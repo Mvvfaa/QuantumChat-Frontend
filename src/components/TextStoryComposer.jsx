@@ -51,6 +51,8 @@ const ALIGNS = [
   { id: 'center', label: 'Center' },
   { id: 'right', label: 'Right' },
 ];
+const TEXT_COLORS = ['#ffffff', '#111827', '#fef08a', '#fda4af', '#86efac', '#93c5fd'];
+const EMOJIS = ['😊', '❤️', '🔥', '✨', '🎉', '😂', '🙏', '🌈'];
 
 function cssBackground(fill) {
   if (typeof fill === 'string') return fill;
@@ -117,7 +119,7 @@ function wrapLines(ctx, text, maxWidth) {
 }
 
 /** Render styled text status to a compressed JPEG (posts as a sealed image story). */
-export async function renderTextStoryToFile(text, { backgroundId, fontId, align }) {
+export async function renderTextStoryToFile(text, { backgroundId, fontId, align, textColor = '#ffffff', fontSize: requestedFontSize }) {
   const bg = BACKGROUNDS.find((b) => b.id === backgroundId) || BACKGROUNDS[0];
   const font = FONTS.find((f) => f.id === fontId) || FONTS[0];
   const textAlign = ['left', 'center', 'right'].includes(align) ? align : 'center';
@@ -133,8 +135,8 @@ export async function renderTextStoryToFile(text, { backgroundId, fontId, align 
   paintFill(ctx, bg.fill, W, H);
 
   const raw = String(text || '').trim().slice(0, MAX_CHARS);
-  let fontSize = raw.length > 220 ? 36 : raw.length > 120 ? 44 : raw.length > 60 ? 54 : 64;
-  ctx.fillStyle = '#ffffff';
+  let fontSize = Number(requestedFontSize) || (raw.length > 220 ? 36 : raw.length > 120 ? 44 : raw.length > 60 ? 54 : 64);
+  ctx.fillStyle = textColor;
   ctx.textBaseline = 'middle';
   ctx.font = `${font.weight} ${fontSize}px ${font.family}`;
 
@@ -171,6 +173,8 @@ export default function TextStoryComposer({ friends = [], onCancel, onConfirm, u
   const [backgroundId, setBackgroundId] = useState(BACKGROUNDS[0].id);
   const [fontId, setFontId] = useState(FONTS[0].id);
   const [align, setAlign] = useState('center');
+  const [textColor, setTextColor] = useState('#ffffff');
+  const [fontSize, setFontSize] = useState(64);
   const [rendering, setRendering] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -203,7 +207,7 @@ export default function TextStoryComposer({ friends = [], onCancel, onConfirm, u
     setRendering(true);
     try {
       const options = opts.buildOptions(status);
-      const file = await renderTextStoryToFile(text, { backgroundId, fontId, align });
+      const file = await renderTextStoryToFile(text, { backgroundId, fontId, align, textColor, fontSize });
       await onConfirm?.(file, opts.computeTtlMs(), opts.allowReplies, options);
     } catch (err) {
       onError?.(err?.message || 'Could not create text status');
@@ -216,7 +220,7 @@ export default function TextStoryComposer({ friends = [], onCancel, onConfirm, u
     if (!text.trim()) return;
     setRendering(true);
     try {
-      const file = await renderTextStoryToFile(text, { backgroundId, fontId, align });
+      const file = await renderTextStoryToFile(text, { backgroundId, fontId, align, textColor, fontSize });
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewFile(file);
       setPreviewUrl(URL.createObjectURL(file));
@@ -244,6 +248,8 @@ export default function TextStoryComposer({ friends = [], onCancel, onConfirm, u
             fontFamily: font.family,
             fontWeight: font.weight,
             textAlign: align,
+            color: textColor,
+            fontSize: `${Math.min(64, Math.max(28, fontSize))}px`,
           }}
         >
           <textarea
@@ -303,6 +309,31 @@ export default function TextStoryComposer({ friends = [], onCancel, onConfirm, u
               >
                 {a.label}
               </button>
+            ))}
+          </div>
+
+          <p className="story-composer-ttl-label">Text color and size</p>
+          <div className="text-story-chip-row" role="group" aria-label="Text color">
+            {TEXT_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className={`text-story-color-chip${textColor === color ? ' active' : ''}`}
+                style={{ background: color }}
+                aria-label={`Text color ${color}`}
+                onClick={() => setTextColor(color)}
+                disabled={busy}
+              />
+            ))}
+            <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} aria-label="Custom text color" disabled={busy} />
+          </div>
+          <label className="text-story-size">
+            Text size
+            <input type="range" min="28" max="96" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} disabled={busy} />
+          </label>
+          <div className="text-story-emoji-row" role="group" aria-label="Add emoji">
+            {EMOJIS.map((emoji) => (
+              <button key={emoji} type="button" onClick={() => setText((current) => `${current}${emoji}`.slice(0, MAX_CHARS))} disabled={busy}>{emoji}</button>
             ))}
           </div>
 
