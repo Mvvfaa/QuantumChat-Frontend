@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { RotateCcw, RotateCw, FlipHorizontal, FlipVertical, ZoomIn, Undo2, Redo2 } from 'lucide-react';
+import { RotateCcw, RotateCw, ZoomIn, Undo2, Redo2 } from 'lucide-react';
 
 const ASPECTS = [
   { id: 'story', label: '9:16', ratio: 9 / 16 },
@@ -46,7 +46,6 @@ async function renderImage(file, state, aspect) {
     ctx.save();
     ctx.translate(canvas.width / 2 + state.x * cropWidth, canvas.height / 2 + state.y * cropHeight);
     ctx.rotate((state.rotation * Math.PI) / 180);
-    ctx.scale(state.flipX ? -1 : 1, state.flipY ? -1 : 1);
     ctx.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
     ctx.restore();
     const blob = await new Promise((resolve, reject) =>
@@ -59,7 +58,7 @@ async function renderImage(file, state, aspect) {
 }
 
 async function renderVideo(file, state, aspect) {
-  if (state.rotation === 0 && !state.flipX && !state.flipY && state.zoom === 1 && state.x === 0 && state.y === 0 && aspect === 'original') {
+  if (state.rotation === 0 && state.zoom === 1 && state.x === 0 && state.y === 0 && aspect === 'original') {
     return file;
   }
   const sourceUrl = URL.createObjectURL(file);
@@ -106,7 +105,6 @@ async function renderVideo(file, state, aspect) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.translate(canvas.width / 2 + state.x * canvas.width, canvas.height / 2 + state.y * canvas.height);
     ctx.rotate((state.rotation * Math.PI) / 180);
-    ctx.scale(state.flipX ? -1 : 1, state.flipY ? -1 : 1);
     const coverScale = Math.max(canvas.width / video.videoWidth, canvas.height / video.videoHeight);
     const drawWidth = video.videoWidth * coverScale * zoom;
     const drawHeight = video.videoHeight * coverScale * zoom;
@@ -129,15 +127,20 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
   const previewRef = useRef(null);
   const [sourceUrl, setSourceUrl] = useState(null);
   const [aspect, setAspect] = useState('story');
-  const [state, setState] = useState({ rotation: 0, flipX: false, flipY: false, zoom: 1, x: 0, y: 0 });
+  const [state, setState] = useState({ rotation: 0, zoom: 1, x: 0, y: 0 });
   const [history, setHistory] = useState([]);
   const [future, setFuture] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [mediaRatio, setMediaRatio] = useState(9 / 16);
+  const dragRef = useRef(null);
+  const rotateRef = useRef(null);
+  const pointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
 
   useEffect(() => {
     const nextUrl = URL.createObjectURL(file);
     setSourceUrl(nextUrl);
-    setState({ rotation: 0, flipX: false, flipY: false, zoom: 1, x: 0, y: 0 });
+    setState({ rotation: 0, zoom: 1, x: 0, y: 0 });
     setAspect('story');
     setHistory([]);
     setFuture([]);
@@ -147,9 +150,11 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
     };
   }, [file]);
 
-  const aspectRatio = useMemo(() => ASPECTS.find((item) => item.id === aspect)?.ratio || 9 / 16, [aspect]);
+  const aspectRatio = useMemo(() => aspect === 'original'
+    ? mediaRatio
+    : ASPECTS.find((item) => item.id === aspect)?.ratio || 9 / 16, [aspect, mediaRatio]);
   const previewStyle = {
-    transform: `translate(${state.x * 100}%, ${state.y * 100}%) rotate(${state.rotation}deg) scale(${state.zoom}) scaleX(${state.flipX ? -1 : 1}) scaleY(${state.flipY ? -1 : 1})`,
+    transform: `translate(${state.x * 100}%, ${state.y * 100}%) rotate(${state.rotation}deg) scale(${state.zoom})`,
   };
 
   function update(next) {
@@ -158,7 +163,7 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
     setState((current) => ({ ...current, ...next }));
   }
   function reset() {
-    update({ rotation: 0, flipX: false, flipY: false, zoom: 1, x: 0, y: 0 });
+    update({ rotation: 0, zoom: 1, x: 0, y: 0 });
     setAspect('story');
   }
   function undo() {
@@ -176,23 +181,93 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
     setFuture((items) => items.slice(1));
   }
   function startDrag(event) {
-    if (busy) return;
-    const startX = event.clientX ?? event.touches?.[0]?.clientX;
-    const startY = event.clientY ?? event.touches?.[0]?.clientY;
-    const move = (nextEvent) => {
-      const x = nextEvent.clientX ?? nextEvent.touches?.[0]?.clientX;
-      const y = nextEvent.clientY ?? nextEvent.touches?.[0]?.clientY;
-      if (x == null || y == null) return;
-      const rect = previewRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      update({ x: clamp(state.x + (x - startX) / rect.width, -1, 1), y: clamp(state.y + (y - startY) / rect.height, -1, 1) });
+    if (busy || event.target.closest('.story-editor-rotate-handle')) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointersRef.current.size === 2) {
+      const points = [...pointersRef.current.values()];
+      pinchRef.current = {
+        startDistance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+        initial: state,
+      };
+      dragRef.current = null;
+      return;
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      initial: state,
+      changed: false,
     };
-    const end = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', end);
+  }
+  function moveDrag(event) {
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    if (pinchRef.current && pointersRef.current.size === 2) {
+      const points = [...pointersRef.current.values()];
+      const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      setState({
+        ...pinchRef.current.initial,
+        zoom: clamp(pinchRef.current.initial.zoom * (distance / Math.max(1, pinchRef.current.startDistance)), 1, 3),
+      });
+      return;
+    }
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const rect = previewRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    drag.changed = true;
+    setState({
+      ...drag.initial,
+      x: clamp(drag.initial.x + (event.clientX - drag.startX) / rect.width, -0.5, 0.5),
+      y: clamp(drag.initial.y + (event.clientY - drag.startY) / rect.height, -0.5, 0.5),
+    });
+  }
+  function endDrag(event) {
+    pointersRef.current.delete(event.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.changed) {
+      setHistory((items) => [...items.slice(-19), drag.initial]);
+      setFuture([]);
+    }
+    dragRef.current = null;
+  }
+  function handleWheel(event) {
+    event.preventDefault();
+    update({ zoom: clamp(state.zoom - event.deltaY * 0.0015, 1, 3) });
+  }
+  function startRotate(event) {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const rect = previewRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    rotateRef.current = {
+      pointerId: event.pointerId,
+      centerX: rect.left + rect.width / 2,
+      centerY: rect.top + rect.height / 2,
+      initial: state,
+      changed: false,
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', end, { once: true });
+  }
+  function moveRotate(event) {
+    const rotate = rotateRef.current;
+    if (!rotate || rotate.pointerId !== event.pointerId) return;
+    const angle = Math.atan2(event.clientY - rotate.centerY, event.clientX - rotate.centerX) * (180 / Math.PI) + 90;
+    rotate.changed = true;
+    setState({ ...rotate.initial, rotation: Math.round(angle * 10) / 10 });
+  }
+  function endRotate(event) {
+    const rotate = rotateRef.current;
+    if (!rotate || rotate.pointerId !== event.pointerId) return;
+    if (rotate.changed) {
+      setHistory((items) => [...items.slice(-19), rotate.initial]);
+      setFuture([]);
+    }
+    rotateRef.current = null;
   }
   async function finish() {
     setBusy(true);
@@ -214,16 +289,42 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
           <strong>Edit story</strong>
           <button type="button" className="story-editor-done" onClick={finish} disabled={busy}>{busy ? 'Rendering…' : 'Done'}</button>
         </div>
-        <div ref={previewRef} className="story-editor-preview" style={{ aspectRatio }} onPointerDown={startDrag}>
-          {video ? <video src={sourceUrl} style={previewStyle} autoPlay loop muted playsInline /> : <img src={sourceUrl} style={previewStyle} alt="Story edit preview" />}
+        <div
+          ref={previewRef}
+          className="story-editor-preview"
+          style={{ aspectRatio }}
+          onPointerDown={startDrag}
+          onPointerMove={(event) => {
+            moveDrag(event);
+            moveRotate(event);
+          }}
+          onPointerUp={(event) => {
+            endDrag(event);
+            endRotate(event);
+          }}
+          onPointerCancel={(event) => {
+            endDrag(event);
+            endRotate(event);
+          }}
+          onWheel={handleWheel}
+        >
+          {video
+            ? <video src={sourceUrl} style={previewStyle} onLoadedMetadata={(event) => setMediaRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 9 / 16)} autoPlay loop muted playsInline />
+            : <img src={sourceUrl} style={previewStyle} onLoad={(event) => setMediaRatio(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight || 9 / 16)} alt="Story edit preview" />}
           <span className="story-editor-crop-frame" aria-hidden />
+          <button
+            type="button"
+            className="story-editor-rotate-handle"
+            aria-label={`Rotate media, current angle ${Math.round(state.rotation)} degrees`}
+            onPointerDown={startRotate}
+          >
+            ↻ <span>{Math.round(state.rotation)}°</span>
+          </button>
         </div>
         <div className="story-editor-tools">
           <div className="story-editor-tool-row">
             <button type="button" onClick={() => update({ rotation: (state.rotation - 90 + 360) % 360 })}><RotateCcw size={17} />Rotate</button>
             <button type="button" onClick={() => update({ rotation: (state.rotation + 90) % 360 })}><RotateCw size={17} />Rotate</button>
-            <button type="button" onClick={() => update({ flipX: !state.flipX })}><FlipHorizontal size={17} />Flip H</button>
-            <button type="button" onClick={() => update({ flipY: !state.flipY })}><FlipVertical size={17} />Flip V</button>
             <button type="button" onClick={reset}><RotateCcw size={17} />Reset</button>
           </div>
           <div className="story-editor-tool-row">
