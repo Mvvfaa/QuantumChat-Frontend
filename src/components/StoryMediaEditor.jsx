@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RotateCcw, RotateCw, ZoomIn, Undo2, Redo2 } from 'lucide-react';
+import { safeStoryObjectUrl } from '../utils/storyMedia.js';
 
 const ASPECTS = [
   { id: 'story', label: '9:16', ratio: 9 / 16 },
@@ -26,7 +27,7 @@ async function renderImage(file, state, aspect) {
       const element = new Image();
       element.onload = () => resolve(element);
       element.onerror = () => reject(new Error('Could not read this image'));
-      element.src = sourceUrl;
+      element.src = safeStoryObjectUrl(sourceUrl);
     });
     const ratio = getCropRatio(aspect, image.naturalWidth, image.naturalHeight);
     const sourceRatio = image.naturalWidth / image.naturalHeight;
@@ -63,7 +64,7 @@ async function renderVideo(file, state, aspect) {
   }
   const sourceUrl = URL.createObjectURL(file);
   const video = document.createElement('video');
-  video.src = sourceUrl;
+  video.src = safeStoryObjectUrl(sourceUrl);
   video.muted = false;
   video.playsInline = true;
   video.preload = 'auto';
@@ -139,7 +140,7 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
 
   useEffect(() => {
     const nextUrl = URL.createObjectURL(file);
-    setSourceUrl(nextUrl);
+    setSourceUrl(safeStoryObjectUrl(nextUrl));
     setState({ rotation: 0, zoom: 1, x: 0, y: 0 });
     setAspect('story');
     setHistory([]);
@@ -309,8 +310,8 @@ export default function StoryMediaEditor({ file, onCancel, onDone, onError }) {
           onWheel={handleWheel}
         >
           {video
-            ? <video src={sourceUrl} style={previewStyle} onLoadedMetadata={(event) => setMediaRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 9 / 16)} autoPlay loop muted playsInline />
-            : <img src={sourceUrl} style={previewStyle} onLoad={(event) => setMediaRatio(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight || 9 / 16)} alt="Story edit preview" />}
+            ? <video src={safeStoryObjectUrl(sourceUrl)} style={previewStyle} onLoadedMetadata={(event) => setMediaRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 9 / 16)} autoPlay loop muted playsInline />
+            : <img src={safeStoryObjectUrl(sourceUrl)} style={previewStyle} onLoad={(event) => setMediaRatio(event.currentTarget.naturalWidth / event.currentTarget.naturalHeight || 9 / 16)} alt="Story edit preview" />}
           <span className="story-editor-crop-frame" aria-hidden />
           <button
             type="button"
